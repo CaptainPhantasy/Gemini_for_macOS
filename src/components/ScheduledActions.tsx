@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ScheduledAction } from '../types';
-import { mcpClient } from '../lib/mcp';
+import { storage } from '../lib/storage';
 import { v4 as uuidv4 } from 'uuid';
 import { X, Save } from 'lucide-react';
 
@@ -14,17 +14,7 @@ export function ScheduledActions({ onClose }: ScheduledActionsProps) {
   const [prompt, setPrompt] = useState('');
 
   useEffect(() => {
-    const loadActions = async () => {
-      try {
-        const data = await mcpClient.readFile('~/.floyd/schedule.json');
-        if (data && !data.startsWith('Content of')) {
-          setActions(JSON.parse(data));
-        }
-      } catch (e) {
-        console.error("Failed to load scheduled actions", e);
-      }
-    };
-    loadActions();
+    setActions(storage.getScheduledActions());
   }, []);
 
   const handleSave = async () => {
@@ -37,10 +27,8 @@ export function ScheduledActions({ onClose }: ScheduledActionsProps) {
       enabled: true
     };
     
-    const updatedActions = [...actions, newAction];
-    setActions(updatedActions);
-    
-    await mcpClient.writeFile('~/.floyd/schedule.json', JSON.stringify(updatedActions));
+    await storage.saveScheduledAction(newAction);
+    setActions([...storage.getScheduledActions()]);
     
     setCron('');
     setPrompt('');

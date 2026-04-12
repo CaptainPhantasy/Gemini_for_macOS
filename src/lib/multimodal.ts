@@ -37,8 +37,39 @@ export const multimodal = {
       }
     });
     
-    // In a real app, we would poll. For this demo, we return the operation ID.
-    return operation.name;
+    // Real polling implementation
+    let currentOperation = operation;
+    while (!currentOperation.done) {
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Poll every 5 seconds
+      currentOperation = await ai.operations.getVideosOperation({ operation: currentOperation });
+    }
+
+    if (currentOperation.error) {
+      console.error("Video generation failed:", currentOperation.error);
+      return null;
+    }
+
+    // Assuming the generated video is available in the response
+    const downloadLink = currentOperation.response?.generatedVideos?.[0]?.video?.uri;
+    if (downloadLink) {
+      try {
+        const response = await fetch(downloadLink, {
+          method: 'GET',
+          headers: {
+            'x-goog-api-key': process.env.GEMINI_API_KEY || '',
+          },
+        });
+        if (response.ok) {
+          const blob = await response.blob();
+          return URL.createObjectURL(blob);
+        }
+      } catch (e) {
+        console.error("Failed to fetch generated video", e);
+      }
+      return downloadLink;
+    }
+    
+    return currentOperation.name;
   },
 
   // Music Generation (Lyria 3)

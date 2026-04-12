@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Gem } from '../types';
-import { mcpClient } from '../lib/mcp';
+import { storage } from '../lib/storage';
 import { v4 as uuidv4 } from 'uuid';
 import { X, Save } from 'lucide-react';
 
@@ -14,18 +14,7 @@ export function GemsRegistry({ onClose }: GemsRegistryProps) {
   const [newGemInstruction, setNewGemInstruction] = useState('');
 
   useEffect(() => {
-    // Load from MCP
-    const loadGems = async () => {
-      try {
-        const data = await mcpClient.readFile('~/.floyd/gems.json');
-        if (data && !data.startsWith('Content of')) {
-          setGems(JSON.parse(data));
-        }
-      } catch (e) {
-        console.error("Failed to load gems", e);
-      }
-    };
-    loadGems();
+    setGems(storage.getGems());
   }, []);
 
   const handleSave = async () => {
@@ -38,10 +27,8 @@ export function GemsRegistry({ onClose }: GemsRegistryProps) {
       createdAt: Date.now()
     };
     
-    const updatedGems = [...gems, newGem];
-    setGems(updatedGems);
-    
-    await mcpClient.writeFile('~/.floyd/gems.json', JSON.stringify(updatedGems));
+    await storage.saveGem(newGem);
+    setGems([...storage.getGems()]);
     
     setNewGemName('');
     setNewGemInstruction('');

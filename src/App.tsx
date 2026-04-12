@@ -9,8 +9,10 @@ import { ScheduledActions } from './components/ScheduledActions';
 import { ArtifactLibrary } from './components/ArtifactLibrary';
 import { Thread, Message, Artifact } from './types';
 import { storage } from './lib/storage';
+import { mcpClient } from './lib/mcp';
 import { v4 as uuidv4 } from 'uuid';
 import { GoogleGenAI } from '@google/genai';
+import { ShieldAlert } from 'lucide-react';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -26,14 +28,32 @@ export default function App() {
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
+  // MCP Permission State
+  const [mcpRequest, setMcpRequest] = useState<{
+    action: string;
+    path: string;
+    resolve: (value: boolean) => void;
+  } | null>(null);
+
   useEffect(() => {
-    const loadedThreads = storage.getThreads();
-    setThreads(loadedThreads);
-    if (loadedThreads.length > 0) {
-      setActiveThreadId(loadedThreads[0].id);
-    } else {
-      handleNewThread();
-    }
+    // Register MCP permission handler
+    mcpClient.setPermissionHandler((action, path) => {
+      return new Promise((resolve) => {
+        setMcpRequest({ action, path, resolve });
+      });
+    });
+
+    const initStorage = async () => {
+      await storage.init();
+      const loadedThreads = storage.getThreads();
+      setThreads([...loadedThreads]);
+      if (loadedThreads.length > 0) {
+        setActiveThreadId(loadedThreads[0].id);
+      } else {
+        handleNewThread();
+      }
+    };
+    initStorage();
   }, []);
 
   useEffect(() => {
@@ -115,6 +135,13 @@ export default function App() {
     }
   };
 
+  const handleMcpResponse = (allowed: boolean) => {
+    if (mcpRequest) {
+      mcpRequest.resolve(allowed);
+      setMcpRequest(null);
+    }
+  };
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 font-sans">
       <Sidebar 
@@ -152,6 +179,39 @@ export default function App() {
       {showGems && <GemsRegistry onClose={() => setShowGems(false)} />}
       {showSchedule && <ScheduledActions onClose={() => setShowSchedule(false)} />}
       {showArtifacts && <ArtifactLibrary onClose={() => setShowArtifacts(false)} onOpenArtifact={(artifact) => { setActiveArtifact(artifact); setShowArtifacts(false); }} />}
+
+      {/* MCP Permission Modal */}
+      {mcpRequest && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
+          <div className="bg-white dark:bg-[#1e1f20] rounded-2xl w-full max-w-md p-6 shadow-2xl flex flex-col items-center text-center">
+            <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-4">
+              <ShieldAlert className="text-red-600 dark:text-red-400" size={24} />
+            </div>
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Security Alert</h2>
+            <p className="text-gray-600 dark:text-gray-300 mb-6">
+              The application is requesting permission to <strong>{mcpRequest.action}</strong> the following path via Model Context Protocol:
+              <br/><br/>
+              <code className="bg-gray-100 dark:bg-[#131314] px-2 py-1 rounded text-sm break-all">
+                {mcpRequest.path}
+              </code>
+            </p>
+            <div className="flex gap-3 w-full">
+              <button 
+                onClick={() => handleMcpResponse(false)}
+                className="flex-1 py-2 px-4 bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
+              >
+                Deny
+              </button>
+              <button 
+                onClick={() => handleMcpResponse(true)}
+                className="flex-1 py-2 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Allow
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
