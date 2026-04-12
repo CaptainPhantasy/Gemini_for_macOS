@@ -1,4 +1,4 @@
-import { Plus, MessageSquare, Settings, Link as LinkIcon, Calendar, Diamond } from 'lucide-react';
+import { Plus, MessageSquare, Settings, Link as LinkIcon, Calendar, Diamond, Library } from 'lucide-react';
 import { Thread } from '../types';
 
 interface SidebarProps {
@@ -10,9 +10,10 @@ interface SidebarProps {
   onOpenGems: () => void;
   onOpenSchedule: () => void;
   onOpenPI: () => void;
+  onOpenArtifacts: () => void;
 }
 
-export function Sidebar({ threads, activeThreadId, onSelectThread, onNewThread, onOpenSettings, onOpenGems, onOpenSchedule, onOpenPI }: SidebarProps) {
+export function Sidebar({ threads, activeThreadId, onSelectThread, onNewThread, onOpenSettings, onOpenGems, onOpenSchedule, onOpenPI, onOpenArtifacts }: SidebarProps) {
   return (
     <div className="w-[250px] bg-gray-50 dark:bg-[#1e1f20] border-r border-gray-200 dark:border-gray-800 flex flex-col h-full">
       <div className="p-4">
@@ -44,6 +45,10 @@ export function Sidebar({ threads, activeThreadId, onSelectThread, onNewThread, 
       </div>
 
       <div className="p-3 border-t border-gray-200 dark:border-gray-800 space-y-1">
+        <button onClick={onOpenArtifacts} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#2a2b2c] transition-colors">
+          <Library size={16} />
+          <span>Artifact Library</span>
+        </button>
         <button onClick={onOpenGems} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#2a2b2c] transition-colors">
           <Diamond size={16} />
           <span>Gems Registry</span>

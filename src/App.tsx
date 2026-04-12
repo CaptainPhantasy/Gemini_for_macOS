@@ -4,6 +4,9 @@ import { Chat } from './components/Chat';
 import { Canvas } from './components/Canvas';
 import { PersonalIntelligencePopup } from './components/PersonalIntelligence';
 import { Settings } from './components/Settings';
+import { GemsRegistry } from './components/GemsRegistry';
+import { ScheduledActions } from './components/ScheduledActions';
+import { ArtifactLibrary } from './components/ArtifactLibrary';
 import { Thread, Message, Artifact } from './types';
 import { storage } from './lib/storage';
 import { v4 as uuidv4 } from 'uuid';
@@ -18,6 +21,9 @@ export default function App() {
   
   const [showPI, setShowPI] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showGems, setShowGems] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [showArtifacts, setShowArtifacts] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
 
   useEffect(() => {
@@ -120,9 +126,10 @@ export default function App() {
         }}
         onNewThread={handleNewThread}
         onOpenSettings={() => setShowSettings(true)}
-        onOpenGems={() => alert('Gems Registry (MCP) - Not fully implemented in this demo')}
-        onOpenSchedule={() => alert('Scheduled Actions (MCP) - Not fully implemented in this demo')}
+        onOpenGems={() => setShowGems(true)}
+        onOpenSchedule={() => setShowSchedule(true)}
         onOpenPI={() => setShowPI(true)}
+        onOpenArtifacts={() => setShowArtifacts(true)}
       />
       
       <div className="flex-1 flex relative">
@@ -142,6 +149,9 @@ export default function App() {
 
       {showPI && <PersonalIntelligencePopup onClose={() => setShowPI(false)} />}
       {showSettings && <Settings onClose={() => setShowSettings(false)} theme={theme} setTheme={setTheme} />}
+      {showGems && <GemsRegistry onClose={() => setShowGems(false)} />}
+      {showSchedule && <ScheduledActions onClose={() => setShowSchedule(false)} />}
+      {showArtifacts && <ArtifactLibrary onClose={() => setShowArtifacts(false)} onOpenArtifact={(artifact) => { setActiveArtifact(artifact); setShowArtifacts(false); }} />}
     </div>
   );
 }

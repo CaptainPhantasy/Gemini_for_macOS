@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Message } from '../types';
 import Markdown from 'react-markdown';
-import { Send, Mic, Image as ImageIcon, Video, Music, Play } from 'lucide-react';
+import { Send, Mic, Image as ImageIcon, Video, Play, Square } from 'lucide-react';
+import { multimodal } from '../lib/multimodal';
 
 interface ChatProps {
   messages: Message[];
@@ -11,7 +12,10 @@ interface ChatProps {
 
 export function Chat({ messages, onSendMessage, onOpenArtifact }: ChatProps) {
   const [input, setInput] = useState('');
+  const [isLiveMode, setIsLiveMode] = useState(false);
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -25,8 +29,41 @@ export function Chat({ messages, onSendMessage, onOpenArtifact }: ChatProps) {
     }
   };
 
+  const toggleLiveMode = async () => {
+    if (isLiveMode) {
+      // Stop live mode
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        setMediaStream(null);
+      }
+      setIsLiveMode(false);
+    } else {
+      // Start live mode
+      setIsLiveMode(true);
+      if (videoRef.current) {
+        const stream = await multimodal.startCameraStream(videoRef.current);
+        if (stream) {
+          setMediaStream(stream);
+        } else {
+          setIsLiveMode(false);
+        }
+      }
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-white dark:bg-[#131314]">
+      {isLiveMode && (
+        <div className="h-48 bg-black flex items-center justify-center relative">
+          <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover opacity-50" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="bg-red-500 text-white px-4 py-2 rounded-full flex items-center gap-2 animate-pulse">
+              <Mic size={16} /> Live Mode Active
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -66,17 +103,23 @@ export function Chat({ messages, onSendMessage, onOpenArtifact }: ChatProps) {
           <button type="button" className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Upload Video">
             <Video size={20} />
           </button>
-          <button type="button" className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Live Mode (Audio)">
-            <Mic size={20} />
+          <button 
+            type="button" 
+            onClick={toggleLiveMode}
+            className={`p-2 rounded-full ${isLiveMode ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`} 
+            title="Live Mode"
+          >
+            {isLiveMode ? <Square size={20} /> : <Mic size={20} />}
           </button>
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask Gemini..."
-            className="flex-1 bg-transparent border-none focus:outline-none px-4 py-2 text-gray-900 dark:text-gray-100"
+            placeholder={isLiveMode ? "Listening..." : "Ask Gemini..."}
+            disabled={isLiveMode}
+            className="flex-1 bg-transparent border-none focus:outline-none px-4 py-2 text-gray-900 dark:text-gray-100 disabled:opacity-50"
           />
-          <button type="submit" disabled={!input.trim()} className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+          <button type="submit" disabled={!input.trim() || isLiveMode} className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
             <Send size={18} />
           </button>
         </form>
