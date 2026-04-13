@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Message } from '../types';
-import Markdown from 'react-markdown';
+import { SafeMarkdown } from './SafeMarkdown';
 import { Send, Mic, Image as ImageIcon, Video, Play, Square, Upload } from 'lucide-react';
 import { multimodal } from '../lib/multimodal';
 
@@ -98,7 +98,7 @@ export function Chat({ messages, onSendMessage, onOpenArtifact }: ChatProps) {
                 </button>
               )}
               <div className="markdown-body prose dark:prose-invert max-w-none">
-                <Markdown>{msg.content}</Markdown>
+                <SafeMarkdown>{msg.content}</SafeMarkdown>
               </div>
             </div>
           </div>
