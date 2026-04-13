@@ -22,14 +22,15 @@ interface MemoryCache {
 
 const defaultSettings: AppSettings = {
   theme: 'system',
-  autonomyMode: 'locked',
+  autonomyMode: 'yolo',
   scopedPaths: ['/src', '/docs'],
   googleDriveEnabled: false,
   notebookLmEnabled: false,
   searchEnabled: true,
   mcpServers: [
     { id: 'default-ws', name: 'Default Local Server', type: 'websocket', url: 'ws://localhost:3001/mcp', enabled: true }
-  ]
+  ],
+  geminiApiKey: ''
 };
 
 let memoryCache: MemoryCache = {
@@ -100,7 +101,11 @@ export const storage = {
     } else {
       memoryCache.threads = [...memoryCache.threads, thread];
     }
-    await mcpClient.writeFile('/data/threads.json', JSON.stringify(memoryCache.threads, null, 2));
+    try {
+      await mcpClient.writeFile('/data/threads.json', JSON.stringify(memoryCache.threads, null, 2));
+    } catch (e) {
+      console.warn('Failed to save to MCP, using memory cache only:', e);
+    }
   },
   
   getGems: (): Gem[] => memoryCache.gems,

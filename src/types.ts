@@ -55,11 +55,12 @@ export type McpServerConfig = {
 };
 
 export type AppSettings = {
-  theme: 'light' | 'dark' | 'system';
+  theme: 'light' | 'dark' | 'system' | 'gemini';
   autonomyMode: AutonomyMode;
   scopedPaths: string[];
   googleDriveEnabled: boolean;
   notebookLmEnabled: boolean;
   searchEnabled: boolean;
   mcpServers: McpServerConfig[];
+  geminiApiKey: string;
 };

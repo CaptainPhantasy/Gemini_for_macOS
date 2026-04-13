@@ -31,11 +31,29 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
         </div>
         
         <div className="flex-1 overflow-y-auto space-y-8 pr-2">
+          {/* API Configuration */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">API Configuration</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-2">Gemini API Key</label>
+                <input 
+                  type="password" 
+                  value={settings.geminiApiKey || ''} 
+                  onChange={(e) => updateSetting('geminiApiKey', e.target.value)}
+                  placeholder="AIzaSy..."
+                  className="w-full px-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-100 dark:border-gray-800 rounded-lg text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">This is stored locally and securely used for API requests.</p>
+              </div>
+            </div>
+          </section>
+
           {/* Theme Section */}
           <section>
             <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">Appearance</h3>
-            <div className="grid grid-cols-3 gap-3">
-              {(['light', 'dark', 'system'] as const).map((t) => (
+            <div className="grid grid-cols-4 gap-3">
+              {(['light', 'dark', 'system', 'gemini'] as const).map((t) => (
                 <button 
                   key={t}
                   onClick={() => updateSetting('theme', t)}

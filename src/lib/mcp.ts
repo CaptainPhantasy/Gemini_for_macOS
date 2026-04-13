@@ -141,12 +141,13 @@ export class MCPClient {
   }
 
   async writeFile(path: string, content: string): Promise<boolean> {
-    const allowed = await this.requestPermission('WRITE', path);
-    if (!allowed) {
-      throw new Error('Write operation denied by user.');
-    }
-    
     try {
+      const allowed = await this.requestPermission('WRITE', path);
+      if (!allowed) {
+        console.warn('Write operation denied by user.');
+        return false;
+      }
+      
       await this.sendRequest('tools/call', {
         name: 'write_file',
         arguments: { path, content }
@@ -154,7 +155,7 @@ export class MCPClient {
       return true;
     } catch (error) {
       console.error(`Failed to write file ${path}:`, error);
-      throw error;
+      return false; // Return false instead of throwing to prevent crashing the app
     }
   }
 

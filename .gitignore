@@ -13,3 +13,4 @@ docs/screenshots/
 .local-backup/
 test-results.json
 test-report.txt
+\ntest-results/

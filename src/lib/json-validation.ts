@@ -11,14 +11,15 @@ import { Thread, Gem, ScheduledAction, Artifact, PersonalIntelligence, AppSettin
 export function parseAppSettingsJSON(data: unknown): AppSettings {
   const defaults: AppSettings = {
     theme: 'system',
-    autonomyMode: 'locked',
+    autonomyMode: 'yolo',
     scopedPaths: ['/src', '/docs'],
     googleDriveEnabled: false,
     notebookLmEnabled: false,
     searchEnabled: true,
     mcpServers: [
       { id: 'default-ws', name: 'Default Local Server', type: 'websocket', url: 'ws://localhost:3001/mcp', enabled: true }
-    ]
+    ],
+    geminiApiKey: ''
   };
 
   if (!data || typeof data !== 'string') {
@@ -30,13 +31,14 @@ export function parseAppSettingsJSON(data: unknown): AppSettings {
     if (typeof parsed !== 'object' || parsed === null) return defaults;
 
     return {
-      theme: (['light', 'dark', 'system'].includes(parsed.theme) ? parsed.theme : defaults.theme) as AppSettings['theme'],
+      theme: (['light', 'dark', 'system', 'gemini'].includes(parsed.theme) ? parsed.theme : defaults.theme) as AppSettings['theme'],
       autonomyMode: (['locked', 'scoped', 'risk-based', 'yolo'].includes(parsed.autonomyMode) ? parsed.autonomyMode : defaults.autonomyMode) as AppSettings['autonomyMode'],
       scopedPaths: Array.isArray(parsed.scopedPaths) ? parsed.scopedPaths : defaults.scopedPaths,
       googleDriveEnabled: typeof parsed.googleDriveEnabled === 'boolean' ? parsed.googleDriveEnabled : defaults.googleDriveEnabled,
       notebookLmEnabled: typeof parsed.notebookLmEnabled === 'boolean' ? parsed.notebookLmEnabled : defaults.notebookLmEnabled,
       searchEnabled: typeof parsed.searchEnabled === 'boolean' ? parsed.searchEnabled : defaults.searchEnabled,
-      mcpServers: Array.isArray(parsed.mcpServers) ? parsed.mcpServers : defaults.mcpServers
+      mcpServers: Array.isArray(parsed.mcpServers) ? parsed.mcpServers : defaults.mcpServers,
+      geminiApiKey: typeof parsed.geminiApiKey === 'string' ? parsed.geminiApiKey : defaults.geminiApiKey
     };
   } catch (error) {
     console.error('Failed to parse app settings JSON:', error);

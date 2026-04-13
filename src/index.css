@@ -1,3 +1,50 @@
 @import "tailwindcss";
 
 @variant dark (&:where(.dark, .dark *));
+
+/* Custom Gemini Theme */
+.theme-gemini {
+  --color-bg-base: #0B0B1A;
+  --color-bg-surface: #14142B;
+  --color-bg-elevated: #1D1D3A;
+  --color-border: #2D2D50;
+  
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #B0B0D0;
+  
+  --color-accent-primary: #B300FF;
+  --color-accent-secondary: #00E5FF;
+  
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+}
+
+.theme-gemini .bg-\[\#131314\] {
+  background-color: var(--color-bg-base) !important;
+}
+
+.theme-gemini .bg-\[\#1e1f20\] {
+  background-color: var(--color-bg-surface) !important;
+}
+
+.theme-gemini .bg-\[\#2a2b2c\] {
+  background-color: var(--color-bg-elevated) !important;
+}
+
+.theme-gemini .border-gray-800, 
+.theme-gemini .border-gray-700 {
+  border-color: var(--color-border) !important;
+}
+
+.theme-gemini .text-blue-500, 
+.theme-gemini .text-blue-400 {
+  color: var(--color-accent-secondary) !important;
+}
+
+.theme-gemini .bg-blue-600 {
+  background-color: var(--color-accent-primary) !important;
+}
+
+.theme-gemini .bg-blue-600:hover {
+  background-color: #D633FF !important;
+}

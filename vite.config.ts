@@ -2,13 +2,25 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
+import fs from 'fs';
+import dotenv from 'dotenv';
 
 export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
+  const env = loadEnv(mode, process.cwd(), '');
+  
+  // Explicitly load .env.local to override process.env.GEMINI_API_KEY which might be polluted
+  let localApiKey = env.GEMINI_API_KEY;
+  if (fs.existsSync('.env.local')) {
+    const localEnv = dotenv.parse(fs.readFileSync('.env.local'));
+    if (localEnv.GEMINI_API_KEY) {
+      localApiKey = localEnv.GEMINI_API_KEY;
+    }
+  }
+
   return {
     plugins: [react(), tailwindcss()],
     define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      'process.env.GEMINI_API_KEY': JSON.stringify(localApiKey),
     },
     resolve: {
       alias: {

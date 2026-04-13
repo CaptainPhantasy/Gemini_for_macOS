@@ -7,7 +7,7 @@ import { Artifact } from '../types';
 import { X, Code, FileText, Search, Check, Wand2, Volume2, Music, Video, RefreshCw, AlignLeft, Terminal, Download, Copy, Undo, Redo } from 'lucide-react';
 import { storage } from '../lib/storage';
 import { multimodal } from '../lib/multimodal';
-import { GoogleGenAI } from '@google/genai';
+import { getAI } from '../lib/api-config';
 
 interface CanvasProps {
   artifact: Artifact | null;
@@ -76,7 +76,7 @@ export function Canvas({ artifact, onClose }: CanvasProps) {
           setMediaType('video');
         }
       } else if (['rewrite', 'summarize', 'code'].includes(action)) {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+        const ai = await getAI();
         let prompt = '';
         if (action === 'rewrite') {
           prompt = `Rewrite the following text to be more engaging, professional, and clear. Improve the flow and vocabulary while maintaining the original meaning:\n\n${content}`;

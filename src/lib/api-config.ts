@@ -6,8 +6,10 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
+import { storage } from './storage';
 
 let _aiInstance: GoogleGenAI | null = null;
+let _currentApiKey: string | null = null;
 
 /**
  * Initialize the AI client with the API key from secure source
@@ -15,20 +17,21 @@ let _aiInstance: GoogleGenAI | null = null;
  * In production, this should use a backend proxy
  */
 export async function initializeAI(): Promise<GoogleGenAI> {
-  if (_aiInstance) {
+  const settings = storage.getSettings();
+  const apiKey = settings?.geminiApiKey || process.env.GEMINI_API_KEY;
+
+  if (_aiInstance && _currentApiKey === apiKey) {
     return _aiInstance;
   }
-
-  const apiKey = process.env.GEMINI_API_KEY;
   
   if (!apiKey) {
     throw new Error(
       'GEMINI_API_KEY is not configured. ' +
-      'In AI Studio, ensure the key is set in Secrets. ' +
-      'In other environments, configure via backend API.'
+      'Please enter your API Key in the Settings menu.'
     );
   }
 
+  _currentApiKey = apiKey;
   _aiInstance = new GoogleGenAI({ apiKey });
   return _aiInstance;
 }

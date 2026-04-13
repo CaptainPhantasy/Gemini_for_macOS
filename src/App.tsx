@@ -11,24 +11,22 @@ import { Thread, Message, Artifact, AppSettings } from './types';
 import { storage } from './lib/storage';
 import { mcpClient } from './lib/mcp';
 import { v4 as uuidv4 } from 'uuid';
-import { GoogleGenAI } from '@google/genai';
+import { getAI } from './lib/api-config';
+import { SplashScreen } from './components/SplashScreen';
 import { ShieldAlert } from 'lucide-react';
+import { detectArtifacts } from './lib/utils';
 import { Search } from "./components/Search";
 import { CommandPalette } from "./components/CommandPalette";
 import { Help } from "./components/Help";
-import { Plugins } from "./components/Plugins";
 import { LiveMode } from "./components/LiveMode";
-import { Integrations } from "./components/Integrations";
 import { ShortcutEditor } from "./components/ShortcutEditor";
 import { useKeyboardShortcuts } from "./lib/useKeyboardShortcuts";
 import { setupAutosave } from "./lib/autosave";
 import { windowState } from "./lib/windowState";
 import { Search as SearchIcon, Plus, Moon, Sun, Settings as SettingsIcon, Camera, Link, Library, Puzzle, Keyboard } from "lucide-react";
 
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [activeArtifact, setActiveArtifact] = useState<Artifact | null>(null);
@@ -41,10 +39,8 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [showPlugins, setShowPlugins] = useState(false);
   const [showShortcutEditor, setShowShortcutEditor] = useState(false);
   const [showLiveMode, setShowLiveMode] = useState(false);
-  const [showIntegrations, setShowIntegrations] = useState(false);
   const [tabbedThreads, setTabbedThreads] = useState<string[]>([]);
   const [settings, setSettings] = useState<AppSettings>(storage.getSettings());
 
@@ -62,18 +58,16 @@ export default function App() {
   useEffect(() => {
     // Register MCP permission handler
     mcpClient.setPermissionHandler(async (action, path) => {
-      const currentSettings = storage.getSettings();
-      
-      if (currentSettings.autonomyMode === 'yolo') {
+      if (settings.autonomyMode === 'yolo') {
         return true;
       }
       
-      if (currentSettings.autonomyMode === 'risk-based' && action === 'READ') {
+      if (settings.autonomyMode === 'risk-based' && action === 'READ') {
         return true;
       }
       
-      if (currentSettings.autonomyMode === 'scoped') {
-        const isScoped = currentSettings.scopedPaths.some(p => path.startsWith(p));
+      if (settings.autonomyMode === 'scoped') {
+        const isScoped = settings.scopedPaths.some(p => path.startsWith(p));
         if (isScoped) return true;
       }
 
@@ -81,7 +75,7 @@ export default function App() {
         setMcpRequest({ action, path, resolve });
       });
     });
-  }, []);
+  }, [settings.autonomyMode, settings.scopedPaths]);
 
   useEffect(() => {
     const initStorage = async () => {
@@ -102,12 +96,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    document.documentElement.classList.remove('dark', 'theme-gemini');
+    
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    } else if (theme === 'gemini') {
+      document.documentElement.classList.add('dark', 'theme-gemini');
     }
-    windowState.save({ theme: theme as 'light' | 'dark' });
+    
+    windowState.save({ theme: theme as 'light' | 'dark' | 'system' | 'gemini' });
   }, [theme]);
 
   const handleUpdateSettings = async (newSettings: AppSettings) => {
@@ -138,7 +135,6 @@ export default function App() {
     { label: "Settings", icon: <SettingsIcon size={16} />, shortcut: "Cmd+,", action: () => setShowSettings(true) },
     { label: "Live Mode", icon: <Camera size={16} />, shortcut: "Cmd+L", action: () => setShowLiveMode(true) },
     { label: "Toggle Theme", icon: theme === "dark" ? <Sun size={16} /> : <Moon size={16} />, shortcut: "Cmd+T", action: () => handleUpdateSettings({...settings, theme: theme === "dark" ? "light" : "dark"}) },
-    { label: "Plugins", icon: <Puzzle size={16} />, shortcut: "Cmd+Shift+P", action: () => setShowPlugins(true) },
   ];
 
   const shortcuts = {
@@ -181,19 +177,35 @@ export default function App() {
       const pi = storage.getPersonalIntelligence();
       const systemInstruction = `User Preferences: ${pi.preferences}\nInstructions: ${pi.instructions}`;
       
+      const ai = await getAI();
+      console.log('Sending message to model...');
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-flash-latest',
         contents: content,
         config: {
           systemInstruction: systemInstruction.trim() ? systemInstruction : undefined,
         }
       });
+      console.log('Response received from model!', response);
+
+      const responseText = typeof response.text === 'function' ? response.text() : (response.text || '');
+      console.log('Response text:', responseText);
+      
+      // Detect artifacts in the response
+      const detectedArtifacts = detectArtifacts(responseText);
+      
+      // Save artifacts to storage
+      for (const artifact of detectedArtifacts) {
+        await storage.saveArtifact(artifact);
+      }
 
       const modelMsg: Message = {
         id: uuidv4(),
         role: 'model',
-        content: response.text || '',
-        timestamp: Date.now()
+        content: responseText,
+        timestamp: Date.now(),
+        type: detectedArtifacts.length > 0 ? 'artifact' : 'text',
+        artifactData: detectedArtifacts.length > 0 ? detectedArtifacts[0] : undefined
       };
 
       const finalThread = {
@@ -204,8 +216,14 @@ export default function App() {
 
       await storage.saveThread(finalThread);
       setThreads([...storage.getThreads()]);
+
+      // Automatically open the first artifact in the Canvas
+      if (detectedArtifacts.length > 0) {
+        setActiveArtifact(detectedArtifacts[0]);
+      }
     } catch (error) {
       console.error('Error generating content:', error);
+      alert(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -215,6 +233,10 @@ export default function App() {
       setMcpRequest(null);
     }
   };
+
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 font-sans">
@@ -261,6 +283,11 @@ export default function App() {
       {showGems && <GemsRegistry onClose={() => setShowGems(false)} />}
       {showSchedule && <ScheduledActions onClose={() => setShowSchedule(false)} />}
       {showArtifacts && <ArtifactLibrary onClose={() => setShowArtifacts(false)} onOpenArtifact={(artifact) => { setActiveArtifact(artifact); setShowArtifacts(false); }} />}
+      {showSearch && <Search onClose={() => setShowSearch(false)} onOpenThread={(id) => setActiveThreadId(id)} onOpenArtifact={(a) => setActiveArtifact(a)} />}
+      {showCommandPalette && <CommandPalette onClose={() => setShowCommandPalette(false)} actions={paletteActions} />}
+      {showHelp && <Help onClose={() => setShowHelp(false)} />}
+      {showShortcutEditor && <ShortcutEditor onClose={() => setShowShortcutEditor(false)} shortcuts={shortcuts} />}
+      {showLiveMode && <LiveMode onClose={() => setShowLiveMode(false)} />}
 
       {/* MCP Permission Modal */}
       {mcpRequest && (
