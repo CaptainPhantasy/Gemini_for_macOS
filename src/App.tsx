@@ -180,7 +180,7 @@ export default function App() {
       const ai = await getAI();
       console.log('Sending message to model...');
       const response = await ai.models.generateContent({
-        model: 'gemini-flash-latest',
+        model: 'gemini-3.1-pro-preview',
         contents: content,
         config: {
           systemInstruction: systemInstruction.trim() ? systemInstruction : undefined,
