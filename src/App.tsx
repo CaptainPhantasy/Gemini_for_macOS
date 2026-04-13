@@ -7,12 +7,24 @@ import { Settings } from './components/Settings';
 import { GemsRegistry } from './components/GemsRegistry';
 import { ScheduledActions } from './components/ScheduledActions';
 import { ArtifactLibrary } from './components/ArtifactLibrary';
-import { Thread, Message, Artifact } from './types';
+import { Thread, Message, Artifact, AppSettings } from './types';
 import { storage } from './lib/storage';
 import { mcpClient } from './lib/mcp';
 import { v4 as uuidv4 } from 'uuid';
 import { GoogleGenAI } from '@google/genai';
 import { ShieldAlert } from 'lucide-react';
+import { Search } from "./components/Search";
+import { CommandPalette } from "./components/CommandPalette";
+import { Help } from "./components/Help";
+import { Plugins } from "./components/Plugins";
+import { LiveMode } from "./components/LiveMode";
+import { Integrations } from "./components/Integrations";
+import { ShortcutEditor } from "./components/ShortcutEditor";
+import { useKeyboardShortcuts } from "./lib/useKeyboardShortcuts";
+import { setupAutosave } from "./lib/autosave";
+import { windowState } from "./lib/windowState";
+import { Search as SearchIcon, Plus, Moon, Sun, Settings as SettingsIcon, Camera, Link, Library, Puzzle, Keyboard } from "lucide-react";
+
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -26,7 +38,19 @@ export default function App() {
   const [showGems, setShowGems] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showArtifacts, setShowArtifacts] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [showSearch, setShowSearch] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [showPlugins, setShowPlugins] = useState(false);
+  const [showShortcutEditor, setShowShortcutEditor] = useState(false);
+  const [showLiveMode, setShowLiveMode] = useState(false);
+  const [showIntegrations, setShowIntegrations] = useState(false);
+  const [tabbedThreads, setTabbedThreads] = useState<string[]>([]);
+  const [settings, setSettings] = useState<AppSettings>(storage.getSettings());
+
+  const theme = settings.theme === 'system' 
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : settings.theme;
 
   // MCP Permission State
   const [mcpRequest, setMcpRequest] = useState<{
@@ -37,14 +61,35 @@ export default function App() {
 
   useEffect(() => {
     // Register MCP permission handler
-    mcpClient.setPermissionHandler((action, path) => {
+    mcpClient.setPermissionHandler(async (action, path) => {
+      const currentSettings = storage.getSettings();
+      
+      if (currentSettings.autonomyMode === 'yolo') {
+        return true;
+      }
+      
+      if (currentSettings.autonomyMode === 'risk-based' && action === 'READ') {
+        return true;
+      }
+      
+      if (currentSettings.autonomyMode === 'scoped') {
+        const isScoped = currentSettings.scopedPaths.some(p => path.startsWith(p));
+        if (isScoped) return true;
+      }
+
       return new Promise((resolve) => {
         setMcpRequest({ action, path, resolve });
       });
     });
+  }, []);
 
+  useEffect(() => {
     const initStorage = async () => {
       await storage.init();
+      const currentSettings = storage.getSettings();
+      setSettings(currentSettings);
+      mcpClient.updateServers(currentSettings.mcpServers);
+      
       const loadedThreads = storage.getThreads();
       setThreads([...loadedThreads]);
       if (loadedThreads.length > 0) {
@@ -62,9 +107,17 @@ export default function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    windowState.save({ theme: theme as 'light' | 'dark' });
   }, [theme]);
 
-  const activeThread = threads.find(t => t.id === activeThreadId);
+  const handleUpdateSettings = async (newSettings: AppSettings) => {
+    setSettings(newSettings);
+    await storage.saveSettings(newSettings);
+    mcpClient.updateServers(newSettings.mcpServers);
+  };
+
+  
+  
 
   const handleNewThread = async () => {
     const newThread: Thread = {
@@ -79,6 +132,27 @@ export default function App() {
     setActiveThreadId(newThread.id);
     setActiveArtifact(null);
   };
+  const paletteActions = [
+    { label: "New Chat", icon: <Plus size={16} />, shortcut: "Cmd+N", action: handleNewThread },
+    { label: "Search", icon: <SearchIcon size={16} />, shortcut: "Cmd+K", action: () => setShowSearch(true) },
+    { label: "Settings", icon: <SettingsIcon size={16} />, shortcut: "Cmd+,", action: () => setShowSettings(true) },
+    { label: "Live Mode", icon: <Camera size={16} />, shortcut: "Cmd+L", action: () => setShowLiveMode(true) },
+    { label: "Toggle Theme", icon: theme === "dark" ? <Sun size={16} /> : <Moon size={16} />, shortcut: "Cmd+T", action: () => handleUpdateSettings({...settings, theme: theme === "dark" ? "light" : "dark"}) },
+    { label: "Plugins", icon: <Puzzle size={16} />, shortcut: "Cmd+Shift+P", action: () => setShowPlugins(true) },
+  ];
+
+  const shortcuts = {
+    "cmd+n": handleNewThread,
+    "cmd+k": () => setShowSearch(true),
+    "cmd+shift+p": () => setShowCommandPalette(true),
+    "cmd+,": () => setShowSettings(true),
+    "cmd+t": () => handleUpdateSettings({...settings, theme: theme === "dark" ? "light" : "dark"}),
+    "cmd+l": () => setShowLiveMode(true),
+    "f1": () => setShowHelp(true),
+  };
+  useKeyboardShortcuts(shortcuts);
+
+  const activeThread = threads.find(t => t.id === activeThreadId);
 
   const handleSendMessage = async (content: string) => {
     if (!activeThread) return;
@@ -157,9 +231,17 @@ export default function App() {
         onOpenSchedule={() => setShowSchedule(true)}
         onOpenPI={() => setShowPI(true)}
         onOpenArtifacts={() => setShowArtifacts(true)}
+        onOpenLiveMode={() => setShowLiveMode(true)}
+        onOpenIntegrations={() => setShowIntegrations(true)}
+        onOpenPlugins={() => setShowPlugins(true)}
+        onOpenHelp={() => setShowHelp(true)}
+        onOpenShortcutEditor={() => setShowShortcutEditor(true)}
+        tabbedThreads={tabbedThreads}
+        onAddTab={(id: string) => setTabbedThreads(prev => [...new Set([...prev, id])])}
+        onRemoveTab={(id: string) => setTabbedThreads(prev => prev.filter(t => t !== id))}
       />
       
-      <div className="flex-1 flex relative">
+      <div className="flex-1 flex relative" role="main" aria-label="Main chat area">
         <Chat 
           messages={activeThread?.messages || []}
           onSendMessage={handleSendMessage}
@@ -175,7 +257,7 @@ export default function App() {
       </div>
 
       {showPI && <PersonalIntelligencePopup onClose={() => setShowPI(false)} />}
-      {showSettings && <Settings onClose={() => setShowSettings(false)} theme={theme} setTheme={setTheme} />}
+      {showSettings && <Settings onClose={() => setShowSettings(false)} settings={settings} onUpdateSettings={handleUpdateSettings} />}
       {showGems && <GemsRegistry onClose={() => setShowGems(false)} />}
       {showSchedule && <ScheduledActions onClose={() => setShowSchedule(false)} />}
       {showArtifacts && <ArtifactLibrary onClose={() => setShowArtifacts(false)} onOpenArtifact={(artifact) => { setActiveArtifact(artifact); setShowArtifacts(false); }} />}

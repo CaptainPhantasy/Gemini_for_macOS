@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Artifact } from '../types';
 import { storage } from '../lib/storage';
 import { sharing } from '../lib/sharing';
-import { X, Code, FileText, Search, Link as LinkIcon, Trash2, Edit2, Check } from 'lucide-react';
+import { X, Code, FileText, Search, Link as LinkIcon, Trash2, Edit2, Check, Upload } from 'lucide-react';
 
 interface ArtifactLibraryProps {
   onClose: () => void;
@@ -54,7 +54,12 @@ export function ArtifactLibrary({ onClose, onOpenArtifact }: ArtifactLibraryProp
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-white dark:bg-[#1e1f20] rounded-2xl w-full max-w-3xl p-6 shadow-2xl max-h-[80vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Artifact Library</h2>
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Artifact Library</h2>
+            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors">
+              <Upload size={14} /> Import File
+            </button>
+          </div>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
             <X size={24} />
           </button>

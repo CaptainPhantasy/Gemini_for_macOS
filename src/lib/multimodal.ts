@@ -1,10 +1,10 @@
-import { GoogleGenAI, Modality } from '@google/genai';
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+import { Modality } from '@google/genai';
+import { getAI } from './api-config';
 
 export const multimodal = {
   // Image Generation (Nano Banana 2 / Pro)
   generateImage: async (prompt: string, usePro: boolean = false) => {
+    const ai = await getAI();
     const model = usePro ? 'gemini-3-pro-image-preview' : 'gemini-3.1-flash-image-preview';
     const response = await ai.models.generateContent({
       model,
@@ -27,6 +27,7 @@ export const multimodal = {
 
   // Video Generation (Veo)
   generateVideo: async (prompt: string) => {
+    const ai = await getAI();
     const operation = await ai.models.generateVideos({
       model: 'veo-3.1-lite-generate-preview',
       prompt,
@@ -55,9 +56,6 @@ export const multimodal = {
       try {
         const response = await fetch(downloadLink, {
           method: 'GET',
-          headers: {
-            'x-goog-api-key': process.env.GEMINI_API_KEY || '',
-          },
         });
         if (response.ok) {
           const blob = await response.blob();
@@ -74,6 +72,7 @@ export const multimodal = {
 
   // Music Generation (Lyria 3)
   generateMusic: async (prompt: string) => {
+    const ai = await getAI();
     const response = await ai.models.generateContentStream({
       model: "lyria-3-clip-preview",
       contents: prompt,
@@ -128,6 +127,7 @@ export const multimodal = {
 
   // Audio Streams (TTS)
   textToSpeech: async (text: string) => {
+    const ai = await getAI();
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text }] }],

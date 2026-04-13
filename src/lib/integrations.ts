@@ -1,12 +1,20 @@
+/**
+ * Google Integrations
+ * 
+ * SECURITY: OAuth tokens are now managed securely via backend HttpOnly cookies.
+ * The frontend never handles tokens directly.
+ * All API calls include credentials: 'include' to send cookies.
+ */
+
 export const integrations = {
   notebookLM: {
     importSource: async (sourceId: string) => {
       try {
-        const response = await fetch(`https://notebooklm.googleapis.com/v1/sources/${sourceId}`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('google_oauth_token')}`,
-            'Content-Type': 'application/json'
-          }
+        // Backend will include the OAuth token via HttpOnly cookie
+        const response = await fetch(`/api/google/notebooklm/sources/${sourceId}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include' // Backend authenticates via HttpOnly cookie
         });
         if (!response.ok) throw new Error('Failed to fetch NotebookLM source');
         const data = await response.json();
@@ -20,15 +28,22 @@ export const integrations = {
   googleWorkspace: {
     importDoc: async (docId: string) => {
       try {
-        const response = await fetch(`https://docs.googleapis.com/v1/documents/${docId}`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('google_oauth_token')}`,
-            'Content-Type': 'application/json'
-          }
+        // Backend will include the OAuth token via HttpOnly cookie
+        const response = await fetch(`/api/google/docs/${docId}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include' // Backend authenticates via HttpOnly cookie
         });
         if (!response.ok) throw new Error('Failed to fetch Google Doc');
         const data = await response.json();
-        const content = data.body?.content?.map((c: any) => c.paragraph?.elements?.map((e: any) => e.textRun?.content).join('')).join('\n') || '';
+        const content = data.body?.content?.map((c: Record<string, unknown>) => {
+          const paragraph = c.paragraph as Record<string, unknown>;
+          const elements = paragraph?.elements as Record<string, unknown>[];
+          return elements?.map((e: Record<string, unknown>) => {
+            const textRun = e.textRun as Record<string, unknown>;
+            return textRun?.content;
+          }).join('');
+        }).join('\n') || '';
         return { success: true, data: content };
       } catch (error) {
         console.error('Google Docs Import Error:', error);
@@ -37,10 +52,10 @@ export const integrations = {
     },
     importDriveFile: async (fileId: string) => {
       try {
-        const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('google_oauth_token')}`
-          }
+        // Backend will include the OAuth token via HttpOnly cookie
+        const response = await fetch(`/api/google/drive/files/${fileId}`, {
+          method: 'GET',
+          credentials: 'include' // Backend authenticates via HttpOnly cookie
         });
         if (!response.ok) throw new Error('Failed to fetch Drive File');
         const data = await response.text();
@@ -54,11 +69,11 @@ export const integrations = {
   googleTravel: {
     getItinerary: async (tripId: string) => {
       try {
-        const response = await fetch(`https://travel.googleapis.com/v1/trips/${tripId}`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('google_oauth_token')}`,
-            'Content-Type': 'application/json'
-          }
+        // Backend will include the OAuth token via HttpOnly cookie
+        const response = await fetch(`/api/google/travel/trips/${tripId}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include' // Backend authenticates via HttpOnly cookie
         });
         if (!response.ok) throw new Error('Failed to fetch Travel Itinerary');
         const data = await response.json();

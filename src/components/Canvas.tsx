@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
+import { useHistory } from '../lib/useHistory';
+import { useKeyboardShortcuts } from '../lib/useKeyboardShortcuts';
+import { exportArtifact } from '../lib/export';
+import { clipboard } from '../lib/clipboard';
 import { Artifact } from '../types';
-import { X, Code, FileText, Search, Check, Wand2, Volume2, Music, Video, RefreshCw, AlignLeft, Terminal } from 'lucide-react';
+import { X, Code, FileText, Search, Check, Wand2, Volume2, Music, Video, RefreshCw, AlignLeft, Terminal, Download, Copy, Undo, Redo } from 'lucide-react';
 import { storage } from '../lib/storage';
 import { multimodal } from '../lib/multimodal';
 import { GoogleGenAI } from '@google/genai';
@@ -11,7 +15,11 @@ interface CanvasProps {
 }
 
 export function Canvas({ artifact, onClose }: CanvasProps) {
-  const [content, setContent] = useState(artifact?.content || '');
+  const history = useHistory(artifact?.content || '');
+  const content = history.value;
+  const setContent = history.push;
+  
+  
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -38,6 +46,12 @@ export function Canvas({ artifact, onClose }: CanvasProps) {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
+
+  useKeyboardShortcuts({
+    'cmd+z': history.undo,
+    'cmd+shift+z': history.redo,
+    'cmd+s': handleSave
+  });
 
   const handleAiAction = async (action: string) => {
     setShowAiMenu(false);
@@ -103,6 +117,13 @@ export function Canvas({ artifact, onClose }: CanvasProps) {
           <h2 className="font-medium truncate max-w-[200px]">{artifact.title}</h2>
         </div>
         <div className="flex items-center gap-2 relative">
+          
+          <div className="flex items-center gap-1 mr-2 border-r border-gray-200 dark:border-gray-700 pr-2">
+            <button onClick={history.undo} disabled={!history.canUndo} className="p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md disabled:opacity-30" title="Undo (Cmd+Z)"><Undo size={16} /></button>
+            <button onClick={history.redo} disabled={!history.canRedo} className="p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md disabled:opacity-30" title="Redo (Cmd+Shift+Z)"><Redo size={16} /></button>
+            <button onClick={() => exportArtifact(artifact, 'txt')} className="p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md" title="Export"><Download size={16} /></button>
+            <button onClick={() => clipboard.copyAsMarkdown(content, artifact?.title || 'artifact')} className="p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md" title="Copy"><Copy size={16} /></button>
+          </div>
           <div className="relative">
             <button 
               onClick={() => setShowAiMenu(!showAiMenu)}

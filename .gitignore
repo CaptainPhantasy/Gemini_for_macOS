@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# DMA: local-only artifacts
+docs/quarantine/
+docs/screenshots/
+.local-backup/
+test-results.json
+test-report.txt

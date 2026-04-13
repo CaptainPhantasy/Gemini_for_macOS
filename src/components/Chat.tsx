@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Message } from '../types';
 import Markdown from 'react-markdown';
-import { Send, Mic, Image as ImageIcon, Video, Play, Square } from 'lucide-react';
+import { Send, Mic, Image as ImageIcon, Video, Play, Square, Upload } from 'lucide-react';
 import { multimodal } from '../lib/multimodal';
 
 interface ChatProps {
@@ -12,6 +12,7 @@ interface ChatProps {
 
 export function Chat({ messages, onSendMessage, onOpenArtifact }: ChatProps) {
   const [input, setInput] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
   const [isLiveMode, setIsLiveMode] = useState(false);
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -20,6 +21,10 @@ export function Chat({ messages, onSendMessage, onOpenArtifact }: ChatProps) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
+  const handleDrop = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,7 +69,13 @@ export function Chat({ messages, onSendMessage, onOpenArtifact }: ChatProps) {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      {isDragging && (
+        <div className="absolute inset-0 bg-blue-500/20 backdrop-blur-sm z-50 flex flex-col items-center justify-center border-4 border-dashed border-blue-500 rounded-2xl m-4 pointer-events-none">
+          <Upload size={48} className="text-blue-500 mb-2 animate-bounce" />
+          <p className="text-blue-700 dark:text-blue-300 font-bold text-xl">Drop files to upload</p>
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto p-4 space-y-6" role="log" aria-live="polite">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[80%] rounded-2xl px-5 py-3 ${
@@ -73,10 +84,10 @@ export function Chat({ messages, onSendMessage, onOpenArtifact }: ChatProps) {
                 : 'bg-transparent text-gray-900 dark:text-gray-100'
             }`}>
               {msg.type === 'image' && msg.artifactData && (
-                <img src={msg.artifactData} alt="Generated" className="max-w-sm rounded-lg mb-2" />
+                <img src={msg.artifactData as string} alt="Generated" className="max-w-sm rounded-lg mb-2" />
               )}
               {msg.type === 'audio' && msg.artifactData && (
-                <audio controls src={msg.artifactData} className="mb-2" />
+                <audio controls src={msg.artifactData as string} className="mb-2" />
               )}
               {msg.type === 'artifact' && (
                 <button 

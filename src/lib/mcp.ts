@@ -1,13 +1,28 @@
+import { McpServerConfig } from '../types';
+
 export class MCPClient {
   private ws: WebSocket | null = null;
   private messageId = 0;
-  private pendingRequests = new Map<number, { resolve: (value: any) => void, reject: (reason?: any) => void }>();
+  private pendingRequests = new Map<number, { resolve: (value: unknown) => void, reject: (reason?: unknown) => void }>();
   private permissionHandler: ((action: string, path: string) => Promise<boolean>) | null = null;
+  private serverConfigs: McpServerConfig[] = [];
+  private isConnected = false;
 
   constructor(private serverUrl: string = 'ws://localhost:3001/mcp') {}
 
   setPermissionHandler(handler: (action: string, path: string) => Promise<boolean>) {
     this.permissionHandler = handler;
+  }
+
+  async updateServers(configs: McpServerConfig[]): Promise<void> {
+    this.serverConfigs = configs;
+    if (this.isConnected) {
+      try {
+        await this.sendRequest('mcp/configure_servers', { servers: configs });
+      } catch (e) {
+        console.warn('Backend proxy might not support dynamic server configuration yet:', e);
+      }
+    }
   }
 
   private async connect(): Promise<void> {
@@ -17,12 +32,23 @@ export class MCPClient {
       try {
         this.ws = new WebSocket(this.serverUrl);
         
-        this.ws.onopen = () => resolve();
+        this.ws.onopen = () => {
+          this.isConnected = true;
+          if (this.serverConfigs.length > 0) {
+            this.sendRequest('mcp/configure_servers', { servers: this.serverConfigs }).catch(console.warn);
+          }
+          resolve();
+        };
         
         this.ws.onerror = (error) => {
           console.error('MCP WebSocket Error:', error);
+          this.isConnected = false;
           // Resolve anyway to prevent unhandled rejections, but operations will fail gracefully
           resolve();
+        };
+
+        this.ws.onclose = () => {
+          this.isConnected = false;
         };
 
         this.ws.onmessage = (event) => {
@@ -48,7 +74,7 @@ export class MCPClient {
     });
   }
 
-  private async sendRequest(method: string, params: any): Promise<any> {
+  private async sendRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
     await this.connect();
     
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -91,7 +117,23 @@ export class MCPClient {
         name: 'read_file',
         arguments: { path }
       });
-      return result.content[0].text;
+      
+      // Add bounds checking and validation
+      if (typeof result !== 'object' || result === null || !('content' in result)) {
+        throw new Error(`Invalid response from MCP: missing content property`);
+      }
+      
+      const resultObj = result as Record<string, unknown>;
+      if (!Array.isArray(resultObj.content) || resultObj.content.length === 0) {
+        throw new Error(`Invalid response from MCP: missing or empty content array`);
+      }
+      
+      const content = resultObj.content[0] as Record<string, unknown>;
+      if (!content || typeof content.text !== 'string') {
+        throw new Error(`Invalid response from MCP: content[0].text is not a string`);
+      }
+      
+      return content.text;
     } catch (error) {
       console.error(`Failed to read file ${path}:`, error);
       throw error;
