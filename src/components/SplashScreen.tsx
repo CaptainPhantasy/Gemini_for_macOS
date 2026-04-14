@@ -38,8 +38,8 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
           onError={() => setError(true)}
           className="w-full h-full object-cover"
         >
-          <source src="/splash.mov" type="video/quicktime" />
           <source src="/splash.mp4" type="video/mp4" />
+          <source src="/splash.mov" type="video/quicktime" />
           Your browser does not support the video tag.
         </video>
       )}

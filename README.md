@@ -1,77 +1,208 @@
-# Gemini Workspace - Local Edition
+# Gemini Studio for macOS
 
-Welcome to the Gemini Workspace Local Edition, a powerful, privacy-first interface built on the Model Context Protocol (MCP) and Google's multimodal API suite (v3.1-Beta). This application achieves feature parity with the Gemini 3.1 Pro Web environment while running locally.
+*Or: A Certain Fruit Company Took a Year, We Took a Coffee Break*
 
-## Quick Start Guide
-
-1. **Install Dependencies:**
-   ```bash
-   npm install
-   ```
-2. **Configure Environment:**
-   Ensure your `.env` file contains your `GEMINI_API_KEY`.
-3. **Start the Application:**
-   ```bash
-   npm run dev
-   ```
-4. **Access the Workspace:**
-   Open your browser to the local URL provided by Vite (typically `http://localhost:3000`).
-
-## Feature Sets
-
-The application is divided into several core feature sets, designed to provide a comprehensive and secure AI workspace:
-
-### 1. Core Workspace & UI
-- **Persistent Chat Interface:** A robust chat interface with thread management (create, rename, delete) stored locally.
-- **Canvas Workspace:** A side-by-side editor for rendering, editing, and interacting with generated text, code, and Deep Research artifacts.
-- **Theming:** Full support for Light and Dark modes with a dedicated settings panel.
-
-### 2. Local Intelligence & Memory (MCP)
-- **Gems Registry:** Create, save, and load custom agent configurations with specific system instructions.
-- **Personal Intelligence:** A dedicated module for users to input direct preferences and explicit instructions that guide the AI's behavior across all interactions.
-- **Scheduled Actions:** A cron-like interface to set up automated prompts and tasks.
-- **Artifact Library:** A centralized hub to search, manage, and edit all generated files and outputs.
-
-### 3. Multimodal Integrations
-- **Text-to-Speech (TTS):** Instantly generate audio streams from text artifacts using `gemini-2.5-flash-preview-tts`.
-- **Music Generation (Lyria 3):** Turn text into 30-second songs with realistic vocal performances using `lyria-3-clip-preview`. Includes `synth_id` watermarking verification.
-- **Video Generation (Veo):** Generate video trailers and visual representations of text using `veo-3.1-lite-generate-preview`.
-- **Live Mode Hooks:** WebRTC integration for local camera feeds and screen sharing.
-
-### 4. External Integrations
-- **Google Ecosystem:** Secure OAuth-based hooks for NotebookLM, Google Workspace (Docs/Drive), and Google Travel data.
-- **Public Links:** Generate external URLs to share specific chat threads or artifacts securely.
-
-## Individual Features & Usage
-
-- **Magic Wand (AI Actions):** Inside the Canvas, click the Magic Wand icon to reveal latent AI features:
-  - **Rewrite:** Instantly improves the flow, vocabulary, and professionalism of the current text.
-  - **Summarize:** Condenses long artifacts into key takeaways.
-  - **Generate Code:** Transforms descriptions into production-ready, documented code.
-  - **Read Aloud:** Plays an audio version of the text.
-  - **Turn into Song:** Creates a musical track based on the text.
-  - **Generate Trailer:** Creates a short video representation.
-- **MCP Security:** Every local file write or command execution requires explicit user confirmation via a custom UI modal, ensuring no silent modifications occur on your machine.
-
-## Latent Feature Discovery & Implementation Process
-
-During the development phase, a significant discovery was made regarding the application's latent capabilities. While powerful multimodal endpoints (Lyria, Veo, TTS) were technically wired into the backend, they were initially restricted to standard chat interactions. 
-
-**The Discovery:** We realized that the true power of these models could be unlocked by wiring them directly into the **Canvas Workspace**. 
-
-**The Implementation:** 
-1. We exposed these latent endpoints as contextual "AI Actions" within the Canvas.
-2. We implemented a dynamic media player that seamlessly handles both audio and video blobs returned by the APIs.
-3. We refined the prompts for rewriting, summarizing, and code generation to ensure the outputs were immediately usable within the editor context.
-This shift transformed the Canvas from a simple text editor into a fully-fledged multimodal production studio.
-
-## Behind-the-Scenes: Alphabet/Google & Legacy AI/Floyd's Labs
-
-This project represents a unique joint venture between Alphabet/Google and Legacy AI/Floyd's Labs. If you look closely at the architecture, you might spot a few Easter eggs:
-
-- **The `~/.floyd/` Directory:** The original specification for local MCP storage referenced `~/.floyd/gems.json` and `~/.floyd/schedule.json`. This is a nod to Floyd's Labs' legacy infrastructure, seamlessly integrated with Google's modern MCP client.
-- **Nano Banana 2:** The internal codename for the image generation model (`models/nano-banana-2`) is a playful reference from the Legacy AI team, contrasting with Google's more formal naming conventions (like Veo and Lyria).
-- **The "Redo with Pro" Hook:** A subtle architectural choice designed to bridge the gap between lightweight local models and cloud-based Pro models, a concept heavily championed during the joint venture's initial brainstorming sessions.
+**DOCUMENT CLASSIFICATION:** README / OBITUARY FOR PRODUCTIVITY
+**DATE RECORDED:** Sometime After We Got Impatient
+**LOCATION:** Here at Floyd's Labs (which is not a boardroom)
+**BEVERAGE:** Coffee that definitely shouldn't be this effective
+**CURRENT STATE:** Done. Which is the whole point.
 
 ---
-*Built with React, Tailwind CSS, Vite, and the @google/genai SDK.*
+
+## What This Is (Or: The Thing That Exists Now)
+
+This is Gemini Studio for macOS.
+
+It runs locally. It respects your machine. It does everything you actually wanted from the web version—without asking permission, phoning home every five seconds, or pretending latency is a feature.
+
+It is fast, self-contained, and very real.
+
+Which is already more than we can say for a lot of "coming soon" pages designed in very expensive offices.
+
+---
+
+## A Brief Moment of Silence (Or: The Year That Disappeared)
+
+Let's acknowledge what came before.
+
+A very large, very polished, very fruit-adjacent organization spent over a year heading toward something like this.
+
+A full calendar year.
+
+Three hundred and sixty-five days of:
+
+- Stand-ups that stood still
+- Alignment meetings about future alignment meetings
+- Slack threads multiplying like rabbits and read by no one
+- Jira tickets aging into archaeological artifacts
+
+Entire teams. Real budgets. Immaculate slides.
+
+Meanwhile, here at Floyd's Labs, Douglas looked at the same problem, took a sip of coffee that tastes like it might void a warranty, and said—while half asleep—
+
+> "just do the thing."
+
+Then promptly disappeared for a nap.
+
+So we did.
+
+Roughly thirty minutes later, this existed.
+
+This document serves as a small, respectful gravestone for that lost year—now compressed into a cautionary tale about what happens when process becomes the product.
+
+No roadmap theater. No "let's circle back." No twelve-step approval rituals.
+
+Just: build the thing, run it locally, move on.
+
+Generative velocity does not wait for permission slips.
+
+---
+
+## Quick Start (Or: You Could Already Be Using This)
+
+1. Install dependencies: `npm install`
+2. Add your API key to `.env`: `GEMINI_API_KEY=your_key_here`
+3. Start it: `npm run dev`
+4. Open the local URL (usually `http://localhost:13000`)
+
+That's it. No onboarding flow. No "getting started experience." No guided tour hosted by a smiling tooltip.
+
+---
+
+## What It Actually Does (Or: The Useful Part Without the Marketing Voice)
+
+### Core Workspace
+
+- Persistent chat with real memory (yes, still rare somehow)
+- Thread management that doesn't fight you
+- Canvas workspace for editing, building, and actually using outputs
+- Light/Dark mode because we're not monsters
+
+### Local Intelligence (MCP)
+
+- Custom agents ("Gems") that do what you tell them
+- Personal memory that sticks
+- Scheduled tasks without needing a SaaS subscription
+- Artifact library for everything you've made
+
+### Multimodal Tools
+
+- Text-to-speech that just works
+- Music generation (yes, really)
+- Video generation for when text isn't enough
+- Live hooks for camera/screen because why not
+
+### Integrations
+
+- Google ecosystem hooks (Docs, Drive, etc.)
+- Shareable links without turning your data into a product
+
+---
+
+## The Part We Didn't Expect (Or: Where It Got Interesting)
+
+Originally, the multimodal stuff lived in chat.
+
+Which is fine. Also boring.
+
+Then we realized something obvious in hindsight:
+
+**The Canvas is the product.**
+
+So we wired everything into it.
+
+Now you can:
+
+- Rewrite directly where you're working
+- Turn text into audio without exporting anything
+- Generate code and immediately use it
+- Create media that doesn't leave the workspace
+
+The result: not a chat app. A production environment.
+
+This is usually where things slow down. Committees form. Opinions multiply. Timelines stretch.
+
+Instead, something better happened.
+
+Here at Floyd's Labs, we had a rough version of this thing running after about five to ten minutes inside Google AI Studio. It worked. Barely. Enough to prove the idea.
+
+Then Claude Code showed up.
+
+And we're not doing the fake humble thing here—this is the part where we give BIG, unapologetic credit.
+
+Claude Code took the rough, slightly chaotic prototype, looked at it like it had somewhere to be, and in another ten to fifteen minutes—under Douglas's extremely hands-on management style (which mostly consists of squinting at the screen and muttering "just do the thing")—
+
+…it did the thing.
+
+Cleaned it up. Wired it properly. Made it behave like a real product instead of a promising accident.
+
+No drama. No ceremony. Just execution.
+
+Douglas was awake for maybe half of this. Generous estimate.
+
+---
+
+## Architecture Notes (Or: Yes, This Is Real)
+
+- Built with React, Tailwind, Vite
+- Uses Google's Gemini APIs (v3.1 Beta)
+- Runs locally with MCP handling memory and control
+- Explicit permission model for file/system actions
+
+No magic. Just decisions. And fewer meetings.
+
+---
+
+## A Note on Timing (Or: Why This Exists)
+
+This is not a heroic story.
+
+Nobody "disrupted" anything.
+
+Here at Floyd's Labs, we just refused to wait.
+
+While certain very well-lit campuses optimized for process, documentation, and internal consensus—
+
+we optimized for:
+
+- opening a terminal
+- writing code
+- seeing if it worked
+
+It did.
+
+So we kept going.
+
+Douglas woke up, nodded, and went back to sleep.
+
+---
+
+## What This Isn't (Or: Let's Be Clear)
+
+- Not a product announcement event
+- Not a carefully staged release cycle
+- Not a subscription funnel
+- Not a "we're excited to share" moment
+
+It's software.
+
+It runs.
+
+You can use it right now.
+
+---
+
+## Closing Thought (Or: The Entire Point)
+
+There's a version of this timeline where this takes a year.
+
+There's another version where it takes about as long as a cup of coffee and one mildly irritated developer muttering instructions into the void.
+
+You are currently reading the second version.
+
+---
+
+**Floyd's Labs and Claude Code present — Gemini Studio for macOS**
+
+> *"If it works, ship it. If it takes a year, you built the meeting instead of the product."*

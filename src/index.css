@@ -2,49 +2,485 @@
 
 @variant dark (&:where(.dark, .dark *));
 
-/* Custom Gemini Theme */
+/* =============================================================
+   Custom "Gemini" Theme — deep space nebula palette
+   Matches the splash artwork: dark purple-black background,
+   neon cyan + hot magenta + violet accents, gold star highlight.
+   ============================================================= */
 .theme-gemini {
-  --color-bg-base: #0B0B1A;
-  --color-bg-surface: #14142B;
-  --color-bg-elevated: #1D1D3A;
-  --color-border: #2D2D50;
-  
-  --color-text-primary: #FFFFFF;
-  --color-text-secondary: #B0B0D0;
-  
-  --color-accent-primary: #B300FF;
-  --color-accent-secondary: #00E5FF;
-  
-  background-color: var(--color-bg-base);
-  color: var(--color-text-primary);
+  /* Background stack — deep space */
+  --gemini-bg-base: #07031a;        /* deepest, outer-cosmos black */
+  --gemini-bg-surface: #120831;     /* panels, sidebar */
+  --gemini-bg-elevated: #1d0d48;    /* modals, cards */
+  --gemini-bg-hover: #2a1563;       /* hover backdrops */
+  --gemini-bg-input: #1a0a3c;       /* form fields */
+
+  /* Borders */
+  --gemini-border: #3d1a7a;
+  --gemini-border-strong: #5a24b0;
+
+  /* Text */
+  --gemini-text-primary: #f2eaff;   /* off-white with violet tint */
+  --gemini-text-secondary: #c0a8e8;
+  --gemini-text-muted: #8a76b8;
+  --gemini-text-disabled: #5a4878;
+
+  /* Neon accents sampled from the splash */
+  --gemini-cyan: #22d3ee;           /* primary "Gemini" text cyan */
+  --gemini-cyan-bright: #67e8f9;
+  --gemini-magenta: #ff1493;        /* hot pink highlight */
+  --gemini-magenta-bright: #ff4d8d;
+  --gemini-violet: #9d4edd;         /* nebula violet */
+  --gemini-violet-bright: #c77dff;
+  --gemini-gold: #ffd60a;           /* splash star */
+
+  /* Semantic accent roles */
+  --color-bg-base: var(--gemini-bg-base);
+  --color-bg-surface: var(--gemini-bg-surface);
+  --color-bg-elevated: var(--gemini-bg-elevated);
+  --color-border: var(--gemini-border);
+  --color-text-primary: var(--gemini-text-primary);
+  --color-text-secondary: var(--gemini-text-secondary);
+  --color-accent-primary: var(--gemini-cyan);
+  --color-accent-secondary: var(--gemini-magenta);
+
+  /* Gradient for headings / logomarks */
+  --gemini-gradient: linear-gradient(
+    135deg,
+    var(--gemini-cyan) 0%,
+    var(--gemini-violet-bright) 50%,
+    var(--gemini-magenta) 100%
+  );
+
+  background-color: var(--gemini-bg-base);
+  color: var(--gemini-text-primary);
 }
 
-.theme-gemini .bg-\[\#131314\] {
-  background-color: var(--color-bg-base) !important;
+/* Subtle nebula backdrop behind the whole app */
+.theme-gemini body,
+.theme-gemini {
+  background-image:
+    radial-gradient(ellipse at 15% 20%, rgba(157, 78, 221, 0.22) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 80%, rgba(255, 20, 147, 0.18) 0%, transparent 55%),
+    radial-gradient(ellipse at 50% 50%, rgba(34, 211, 238, 0.10) 0%, transparent 70%);
+  background-attachment: fixed;
 }
 
-.theme-gemini .bg-\[\#1e1f20\] {
-  background-color: var(--color-bg-surface) !important;
+/* ---------- Background overrides ----------
+   IMPORTANT: The workspace root div uses `bg-white dark:bg-[#131314]`, so in
+   dark mode it's the `dark:bg-[#131314]` variant that takes effect — NOT
+   `bg-white`. We also make the top-level workspace background transparent so
+   the html nebula + body starfield show through. Inner panels get real gemini
+   surface colors. We target BOTH the plain and dark: forms of every class
+   because some elements use one, some the other.
+*/
+
+/* Top-level workspace fills — make them transparent so html's cosmos shows through. */
+.theme-gemini .dark\:bg-\[\#131314\],
+.theme-gemini .bg-\[\#131314\],
+.theme-gemini .dark\:bg-\[\#0a0a0a\],
+.theme-gemini .bg-\[\#0a0a0a\],
+.theme-gemini .dark\:bg-black,
+.theme-gemini .dark\:bg-gray-950,
+.theme-gemini .dark\:bg-gray-900 {
+  background-color: transparent !important;
 }
 
-.theme-gemini .bg-\[\#2a2b2c\] {
-  background-color: var(--color-bg-elevated) !important;
+/* Mid-level surfaces (sidebar, modals, cards) get the surface purple. */
+.theme-gemini .dark\:bg-\[\#1e1f20\],
+.theme-gemini .bg-\[\#1e1f20\],
+.theme-gemini .dark\:bg-\[\#1a1a1a\],
+.theme-gemini .bg-\[\#1a1a1a\],
+.theme-gemini .dark\:bg-gray-800,
+.theme-gemini .bg-gray-800 {
+  background-color: rgba(18, 8, 49, 0.85) !important;
+  backdrop-filter: blur(6px);
 }
 
-.theme-gemini .border-gray-800, 
-.theme-gemini .border-gray-700 {
-  border-color: var(--color-border) !important;
+/* Elevated surfaces (inputs, chips). */
+.theme-gemini .dark\:bg-\[\#2a2b2c\],
+.theme-gemini .bg-\[\#2a2b2c\],
+.theme-gemini .dark\:bg-\[\#2a2a2a\],
+.theme-gemini .bg-\[\#2a2a2a\],
+.theme-gemini .dark\:bg-gray-700,
+.theme-gemini .bg-gray-700 {
+  background-color: rgba(29, 13, 72, 0.9) !important;
 }
 
-.theme-gemini .text-blue-500, 
-.theme-gemini .text-blue-400 {
-  color: var(--color-accent-secondary) !important;
+.theme-gemini .dark\:bg-\[\#004a77\],
+.theme-gemini .bg-\[\#004a77\] {
+  background-color: var(--gemini-bg-hover) !important;
 }
 
-.theme-gemini .bg-blue-600 {
-  background-color: var(--color-accent-primary) !important;
+/* Hover — use alpha so the background shows through. */
+.theme-gemini .hover\:bg-gray-800:hover,
+.theme-gemini .hover\:bg-gray-700:hover,
+.theme-gemini .dark\:hover\:bg-gray-800:hover,
+.theme-gemini .dark\:hover\:bg-gray-700:hover {
+  background-color: rgba(42, 21, 99, 0.85) !important;
 }
 
-.theme-gemini .bg-blue-600:hover {
-  background-color: #D633FF !important;
+/* ---------- Borders ---------- */
+.theme-gemini .border-gray-950,
+.theme-gemini .border-gray-900,
+.theme-gemini .border-gray-800,
+.theme-gemini .border-gray-700,
+.theme-gemini .border-gray-600,
+.theme-gemini .dark\:border-gray-950,
+.theme-gemini .dark\:border-gray-900,
+.theme-gemini .dark\:border-gray-800,
+.theme-gemini .dark\:border-gray-700,
+.theme-gemini .dark\:border-gray-600 {
+  border-color: var(--gemini-border) !important;
+}
+
+/* ---------- Text colors (only the dark-mode variants; leave light-mode alone) ---------- */
+.theme-gemini .dark\:text-white,
+.theme-gemini .dark\:text-gray-100,
+.theme-gemini .dark\:text-gray-50,
+.theme-gemini .text-white {
+  color: var(--gemini-text-primary) !important;
+}
+
+.theme-gemini .dark\:text-gray-300,
+.theme-gemini .dark\:text-gray-400,
+.theme-gemini .text-gray-400 {
+  color: var(--gemini-text-secondary) !important;
+}
+
+.theme-gemini .dark\:text-gray-500,
+.theme-gemini .text-gray-500 {
+  color: var(--gemini-text-muted) !important;
+}
+
+/* ---------- Brand blue → neon cyan ---------- */
+.theme-gemini .text-blue-500,
+.theme-gemini .text-blue-400,
+.theme-gemini .text-blue-300,
+.theme-gemini .text-blue-200,
+.theme-gemini .dark\:text-blue-400,
+.theme-gemini .dark\:text-blue-300,
+.theme-gemini .dark\:text-blue-200 {
+  color: var(--gemini-cyan-bright) !important;
+}
+
+.theme-gemini .bg-blue-600,
+.theme-gemini .bg-blue-500 {
+  background: linear-gradient(135deg, var(--gemini-cyan) 0%, var(--gemini-violet) 100%) !important;
+  color: var(--gemini-bg-base) !important;
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.35);
+}
+
+.theme-gemini .bg-blue-600:hover,
+.theme-gemini .bg-blue-500:hover,
+.theme-gemini .hover\:bg-blue-700:hover {
+  background: linear-gradient(135deg, var(--gemini-cyan-bright) 0%, var(--gemini-magenta) 100%) !important;
+  box-shadow: 0 0 24px rgba(255, 20, 147, 0.45);
+}
+
+.theme-gemini .border-blue-500,
+.theme-gemini .border-blue-600 {
+  border-color: var(--gemini-cyan) !important;
+}
+
+.theme-gemini .bg-blue-50,
+.theme-gemini .bg-blue-900\/30,
+.theme-gemini .dark\:bg-\[\#004a77\] {
+  background-color: rgba(34, 211, 238, 0.12) !important;
+  border: 1px solid rgba(34, 211, 238, 0.35);
+}
+
+/* ---------- Focus rings → cyan glow ---------- */
+.theme-gemini :focus-visible,
+.theme-gemini .focus\:ring-blue-500:focus,
+.theme-gemini .focus-within\:ring-blue-500:focus-within {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--gemini-cyan), 0 0 14px rgba(34, 211, 238, 0.5) !important;
+}
+
+/* ---------- Inputs and textareas ---------- */
+.theme-gemini input[type="text"],
+.theme-gemini input[type="number"],
+.theme-gemini input[type="password"],
+.theme-gemini input[type="email"],
+.theme-gemini textarea,
+.theme-gemini select {
+  background-color: var(--gemini-bg-input) !important;
+  color: var(--gemini-text-primary) !important;
+  border-color: var(--gemini-border) !important;
+}
+
+.theme-gemini input::placeholder,
+.theme-gemini textarea::placeholder {
+  color: var(--gemini-text-muted) !important;
+}
+
+/* ---------- Gradient title treatment (Gemini Studio h1 etc.) ---------- */
+.theme-gemini .gemini-gradient-text,
+.theme-gemini h1.text-transparent,
+.theme-gemini .bg-gradient-to-r.from-blue-400 {
+  background: var(--gemini-gradient) !important;
+  background-size: 250% 250% !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  color: transparent !important;
+  text-shadow: 0 0 24px rgba(157, 78, 221, 0.35);
+  animation: gemini-title-shift 9s ease-in-out infinite;
+}
+
+@keyframes gemini-title-shift {
+  0%   { background-position:   0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position:   0% 50%; }
+}
+
+/* ---------- Sidebar treatment ---------- */
+.theme-gemini aside,
+.theme-gemini nav[aria-label] {
+  border-right: 1px solid var(--gemini-border);
+  background: linear-gradient(180deg, var(--gemini-bg-surface) 0%, var(--gemini-bg-base) 100%);
+}
+
+/* ---------- Scrollbar ---------- */
+.theme-gemini ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.theme-gemini ::-webkit-scrollbar-track {
+  background: var(--gemini-bg-base);
+}
+.theme-gemini ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--gemini-violet) 0%, var(--gemini-magenta) 100%);
+  border-radius: 5px;
+  border: 2px solid var(--gemini-bg-base);
+}
+.theme-gemini ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--gemini-violet-bright) 0%, var(--gemini-magenta-bright) 100%);
+}
+
+/* ---------- Selection ---------- */
+.theme-gemini ::selection {
+  background-color: rgba(255, 20, 147, 0.45);
+  color: var(--gemini-text-primary);
+}
+
+/* ---------- CostBadge in gemini theme ---------- */
+.theme-gemini [aria-label*="Gemini spend" i],
+.theme-gemini button[title*="cost" i] {
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.15) 0%, rgba(255, 20, 147, 0.15) 100%) !important;
+  border: 1px solid var(--gemini-cyan) !important;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.25);
+  transition: box-shadow 300ms ease, background-color 300ms ease;
+}
+
+/* ---------- #6: CostBadge pulse on cost change ---------- */
+@keyframes gemini-cost-pulse {
+  0% {
+    box-shadow: 0 0 12px rgba(34, 211, 238, 0.25);
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.15) 0%, rgba(255, 20, 147, 0.15) 100%);
+  }
+  35% {
+    box-shadow: 0 0 28px rgba(255, 20, 147, 0.85), 0 0 48px rgba(255, 20, 147, 0.45);
+    background: linear-gradient(135deg, rgba(255, 20, 147, 0.35) 0%, rgba(199, 125, 255, 0.3) 100%);
+  }
+  100% {
+    box-shadow: 0 0 12px rgba(34, 211, 238, 0.25);
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.15) 0%, rgba(255, 20, 147, 0.15) 100%);
+  }
+}
+.theme-gemini .cost-pulse {
+  animation: gemini-cost-pulse 650ms ease-out !important;
+}
+
+/* =============================================================
+   #2 — Two-layer parallax starfield
+   GPU-composited via transform: translate3d so we never repaint the
+   radial gradients during the drift. Two layers at different speeds +
+   directions create real depth, like Starfield's title screen. The
+   layers are 3x the viewport so you never see an edge as they translate.
+   ============================================================= */
+.theme-gemini body {
+  position: relative;
+  min-height: 100vh;
+}
+
+.theme-gemini body::before,
+.theme-gemini body::after {
+  content: '';
+  position: fixed;
+  top: -100%;
+  left: -100%;
+  width: 300%;
+  height: 300%;
+  pointer-events: none;
+  z-index: 0;
+  background-repeat: repeat;
+  /* Promote to its own compositor layer so the animation is pure transform. */
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+}
+
+/* Far layer — dim, smaller dots, slow diagonal drift. */
+.theme-gemini body::before {
+  opacity: 0.42;
+  background-image:
+    radial-gradient(1px 1px at 13% 22%, rgba(255, 255, 255, 0.9), transparent 60%),
+    radial-gradient(1px 1px at 28% 70%, rgba(199, 125, 255, 0.75), transparent 60%),
+    radial-gradient(1px 1px at 47% 15%, rgba(34, 211, 238, 0.7), transparent 60%),
+    radial-gradient(1px 1px at 62% 55%, rgba(255, 255, 255, 0.85), transparent 60%),
+    radial-gradient(1px 1px at 78% 28%, rgba(255, 20, 147, 0.6), transparent 60%),
+    radial-gradient(1px 1px at 88% 74%, rgba(255, 255, 255, 0.7), transparent 60%),
+    radial-gradient(1px 1px at 7% 82%, rgba(34, 211, 238, 0.7), transparent 60%),
+    radial-gradient(1px 1px at 35% 92%, rgba(199, 125, 255, 0.55), transparent 60%),
+    radial-gradient(1px 1px at 95% 48%, rgba(255, 255, 255, 0.65), transparent 60%);
+  background-size: 420px 420px;
+  animation: gemini-starfield-far 240s linear infinite;
+}
+
+/* Near layer — brighter, slightly larger dots, faster drift in a different
+   direction for real parallax. */
+.theme-gemini body::after {
+  opacity: 0.55;
+  background-image:
+    radial-gradient(1.5px 1.5px at 8% 60%, rgba(255, 255, 255, 1), transparent 55%),
+    radial-gradient(1.5px 1.5px at 42% 12%, rgba(255, 20, 147, 0.75), transparent 55%),
+    radial-gradient(1.5px 1.5px at 74% 88%, rgba(34, 211, 238, 0.85), transparent 55%),
+    radial-gradient(2px 2px at 56% 44%, rgba(255, 214, 10, 0.55), transparent 55%),
+    radial-gradient(1.5px 1.5px at 90% 20%, rgba(255, 255, 255, 0.9), transparent 55%),
+    radial-gradient(1.5px 1.5px at 22% 38%, rgba(199, 125, 255, 0.8), transparent 55%),
+    radial-gradient(1.5px 1.5px at 68% 72%, rgba(255, 255, 255, 0.85), transparent 55%);
+  background-size: 560px 560px;
+  animation: gemini-starfield-near 170s linear infinite;
+}
+
+/* The translate amounts MUST be exact integer multiples of background-size
+   so the pattern loops seamlessly with zero visual pop. */
+@keyframes gemini-starfield-far {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-420px, -420px, 0); }
+}
+
+@keyframes gemini-starfield-near {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(560px, -280px, 0); }
+}
+
+/* Ensure the React root sits above the starfield layers. */
+.theme-gemini #root,
+.theme-gemini main {
+  position: relative;
+  z-index: 1;
+}
+
+/* Accessibility: respect reduced-motion preference. */
+@media (prefers-reduced-motion: reduce) {
+  .theme-gemini body::before,
+  .theme-gemini body::after,
+  .theme-gemini h1.text-transparent,
+  .theme-gemini .gemini-gradient-text,
+  .theme-gemini [role="dialog"]::before {
+    animation: none !important;
+  }
+}
+
+/* =============================================================
+   #3 — Cyan caret with a glow in all text-entry fields
+   ============================================================= */
+.theme-gemini input,
+.theme-gemini textarea,
+.theme-gemini [contenteditable="true"] {
+  caret-color: var(--gemini-cyan-bright);
+}
+
+/* =============================================================
+   #4 — Sidebar item hover glow + animated left-edge gradient stripe
+   ============================================================= */
+.theme-gemini aside button,
+.theme-gemini nav button {
+  position: relative;
+  transition:
+    background-color 200ms ease,
+    box-shadow 250ms ease,
+    transform 180ms ease;
+  overflow: hidden;
+}
+
+.theme-gemini aside button::before,
+.theme-gemini nav button::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 15%;
+  bottom: 15%;
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    var(--gemini-cyan) 0%,
+    var(--gemini-violet-bright) 50%,
+    var(--gemini-magenta) 100%
+  );
+  opacity: 0;
+  transform: scaleY(0.4);
+  transform-origin: center;
+  transition: opacity 220ms ease, transform 220ms ease;
+  pointer-events: none;
+}
+
+.theme-gemini aside button:hover::before,
+.theme-gemini nav button:hover::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.theme-gemini aside button:hover,
+.theme-gemini nav button:hover {
+  box-shadow:
+    inset 12px 0 24px -12px rgba(34, 211, 238, 0.35),
+    0 0 16px rgba(157, 78, 221, 0.2);
+}
+
+.theme-gemini aside button:active,
+.theme-gemini nav button:active {
+  transform: translateX(1px);
+}
+
+/* =============================================================
+   #5 — Animated gradient border on active modals
+   Uses the mask-composite trick so we get a 1px gradient "frame"
+   without touching the modal's background.
+   ============================================================= */
+.theme-gemini [role="dialog"] {
+  position: relative;
+}
+
+.theme-gemini [role="dialog"]::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  padding: 1.5px;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    var(--gemini-cyan) 0%,
+    var(--gemini-violet-bright) 30%,
+    var(--gemini-magenta) 60%,
+    var(--gemini-cyan) 100%
+  );
+  background-size: 300% 300%;
+  animation: gemini-modal-border-shift 7s ease-in-out infinite;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes gemini-modal-border-shift {
+  0%   { background-position:   0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position:   0% 50%; }
 }

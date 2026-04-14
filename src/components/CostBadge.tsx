@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { costLedger } from '../lib/cost-ledger';
 
 interface CostBadgeProps {
@@ -40,6 +40,26 @@ export function CostBadge({ onClick, className }: CostBadgeProps) {
   const [month, setMonth] = useState<number>(0);
   const [breakdown, setBreakdown] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
+  // Pulse flash key — bumps each time `today` increases so we can restart the
+  // CSS keyframe by swapping class names via React's reconciliation. Only the
+  // gemini theme styles react to .cost-pulse; other themes ignore it.
+  const [pulseTick, setPulseTick] = useState<number>(0);
+  const prevTodayRef = useRef<number>(0);
+  const didInitRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    // Skip the very first load — we don't want the badge flashing on boot
+    // when the ledger first resolves and today jumps from 0 to its real value.
+    if (!didInitRef.current) {
+      didInitRef.current = true;
+      prevTodayRef.current = today;
+      return;
+    }
+    if (today > prevTodayRef.current + 0.00001) {
+      prevTodayRef.current = today;
+      setPulseTick((tick) => tick + 1);
+    }
+  }, [today]);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,11 +122,12 @@ export function CostBadge({ onClick, className }: CostBadgeProps) {
 
   return (
     <button
+      key={pulseTick}
       type="button"
       onClick={onClick}
       title={tooltipText}
       aria-label={`Estimated Gemini spend. Today ${formatUsd(today)}. This month ${formatUsd(month)}. Click to open Cost and Usage settings.`}
-      className={composed}
+      className={`${composed} ${pulseTick > 0 ? 'cost-pulse' : ''}`}
     >
       <span className="flex items-center gap-1">
         <span className="text-[10px] uppercase tracking-wider text-zinc-500">
