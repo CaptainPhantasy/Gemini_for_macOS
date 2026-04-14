@@ -13,4 +13,9 @@ docs/screenshots/
 .local-backup/
 test-results.json
 test-report.txt
-\ntest-results/
+test-results/
+
+# Ephemeral tool state and orchestration artifacts
+.pi/
+.pi-lens/
+.sprint/

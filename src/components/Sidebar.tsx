@@ -1,5 +1,6 @@
 import { Plus, MessageSquare, Settings, Link as LinkIcon, Calendar, Diamond, Library, Video, Brain, Sparkles } from 'lucide-react';
 import { Thread } from '../types';
+import { CostBadge } from './CostBadge';
 
 interface SidebarProps {
   onOpenPlugins?: () => void;
@@ -83,6 +84,9 @@ export function Sidebar({ threads, activeThreadId, onSelectThread, onNewThread, 
           <Brain size={16} className="text-gray-400" />
           <span>Personal Intelligence</span>
         </button>
+        <div className="px-3 py-2">
+          <CostBadge />
+        </div>
         <button onClick={onOpenSettings} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#2a2b2c] transition-colors">
           <Settings size={16} className="text-gray-400" />
           <span>Settings</span>

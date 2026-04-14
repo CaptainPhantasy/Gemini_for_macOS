@@ -1,71 +1,74 @@
-import { useState, useRef } from 'react';
-import { X, Camera, Monitor, VideoOff } from 'lucide-react';
-import { multimodal } from '../lib/multimodal';
+/**
+ * LiveMode — thin entry point that switches between {@link LiveChooser} and
+ * {@link LiveSessionPanel} based on the user's mode selection.
+ *
+ * The previous implementation tried to manage MediaStream state inline with a
+ * `videoRef.current` guard that caused a chicken-and-egg bug: the video
+ * element was conditionally rendered based on stream presence, so the ref was
+ * always null at the moment we tried to attach the stream. The rewrite splits
+ * the surface into a chooser and a panel so the video element is always
+ * mounted as soon as a video mode is active.
+ *
+ * Existing call sites that import `<LiveMode isOpen={...} onClose={...} />`
+ * keep working unchanged.
+ */
+import { useState } from 'react';
 
-export function LiveMode({ onClose }) {
-  const [stream, setStream] = useState(null);
-  const videoRef = useRef(null);
+import { LiveChooser, type LiveModeKind } from './LiveChooser';
+import { LiveSessionPanel } from './LiveSessionPanel';
 
-  const startCamera = async () => {
-    if (videoRef.current) {
-      const s = await multimodal.startCameraStream(videoRef.current);
-      if (s) setStream(s);
-    }
+export { LiveChooser } from './LiveChooser';
+export type { LiveModeKind, LiveChooserProps } from './LiveChooser';
+export { LiveSessionPanel } from './LiveSessionPanel';
+export type { LiveSessionPanelProps } from './LiveSessionPanel';
+
+export interface LiveModeProps {
+  /**
+   * Optional. Defaults to `true` when omitted so existing call sites that
+   * conditionally render `<LiveMode onClose={...} />` keep working without
+   * modification.
+   */
+  isOpen?: boolean;
+  onClose: () => void;
+  modelId?: string;
+  systemInstruction?: string;
+  voiceName?: string;
+  onSessionEnd?: (transcript: string, metadata: Record<string, unknown>) => void;
+}
+
+export function LiveMode({
+  isOpen = true,
+  onClose,
+  modelId,
+  systemInstruction,
+  voiceName,
+  onSessionEnd,
+}: LiveModeProps) {
+  const [mode, setMode] = useState<LiveModeKind | null>(null);
+
+  if (!isOpen) return null;
+
+  const handleClose = () => {
+    setMode(null);
+    onClose();
   };
 
-  const startScreen = async () => {
-    if (videoRef.current) {
-      const s = await multimodal.startScreenShare(videoRef.current);
-      if (s) setStream(s);
-    }
-  };
-
-  const stopStream = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
-    }
-  };
+  if (mode === null) {
+    return (
+      <LiveChooser isOpen={isOpen} onClose={handleClose} onSelect={(next) => setMode(next)} />
+    );
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-8">
-      <div className="bg-[#1e1f20] rounded-2xl w-full max-w-4xl h-full max-h-[600px] flex flex-col shadow-2xl relative overflow-hidden border border-gray-800">
-        <div className="flex justify-between items-center p-6 border-b border-gray-800">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-            <h2 className="text-xl font-semibold text-white">Live Mode</h2>
-          </div>
-          <button onClick={() => { stopStream(); onClose(); }} className="text-gray-400 hover:text-white transition-colors">
-            <X size={24} />
-          </button>
-        </div>
-        <div className="flex-1 bg-black flex items-center justify-center relative">
-          {!stream ? (
-            <div className="text-gray-500 text-center flex flex-col items-center gap-4">
-              <Camera size={48} />
-              <p>Select a source to begin live streaming</p>
-            </div>
-          ) : (
-            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-contain" />
-          )}
-        </div>
-        <div className="p-6 border-t border-gray-800 flex justify-center gap-4">
-          {!stream ? (
-            <>
-              <button onClick={startCamera} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full transition-all">
-                <Camera size={20} /> Start Camera
-              </button>
-              <button onClick={startScreen} className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 text-white px-6 py-3 rounded-full transition-all">
-                <Monitor size={20} /> Share Screen
-              </button>
-            </>
-          ) : (
-            <button onClick={stopStream} className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full transition-all">
-              <VideoOff size={20} /> Stop Stream
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+    <LiveSessionPanel
+      mode={mode}
+      onClose={handleClose}
+      modelId={modelId}
+      systemInstruction={systemInstruction}
+      voiceName={voiceName}
+      onSessionEnd={onSessionEnd}
+    />
   );
 }
+
+export default LiveMode;

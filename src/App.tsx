@@ -19,10 +19,13 @@ import { Search } from "./components/Search";
 import { CommandPalette } from "./components/CommandPalette";
 import { Help } from "./components/Help";
 import { LiveMode } from "./components/LiveMode";
+import { Integrations } from "./components/Integrations";
 import { ShortcutEditor } from "./components/ShortcutEditor";
 import { useKeyboardShortcuts } from "./lib/useKeyboardShortcuts";
 import { setupAutosave } from "./lib/autosave";
 import { windowState } from "./lib/windowState";
+import { costLedger } from "./lib/cost-ledger";
+import { logger } from "./lib/logger";
 import { Search as SearchIcon, Plus, Moon, Sun, Settings as SettingsIcon, Camera, Link, Library, Puzzle, Keyboard } from "lucide-react";
 
 export default function App() {
@@ -41,6 +44,9 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [showShortcutEditor, setShowShortcutEditor] = useState(false);
   const [showLiveMode, setShowLiveMode] = useState(false);
+  const [showIntegrations, setShowIntegrations] = useState(false);
+  // Plugins panel deferred per Plan v3 — stub state retained so Sidebar prop signature stays stable.
+  const [, setShowPlugins] = useState(false);
   const [tabbedThreads, setTabbedThreads] = useState<string[]>([]);
   const [settings, setSettings] = useState<AppSettings>(storage.getSettings());
 
@@ -140,7 +146,8 @@ export default function App() {
   const shortcuts = {
     "cmd+n": handleNewThread,
     "cmd+k": () => setShowSearch(true),
-    "cmd+shift+p": () => setShowCommandPalette(true),
+    // Cmd+Shift+P shadowed by Chrome incognito (Plan v3 Bug #5); rebind to Cmd+Shift+K.
+    "cmd+shift+k": () => setShowCommandPalette(true),
     "cmd+,": () => setShowSettings(true),
     "cmd+t": () => handleUpdateSettings({...settings, theme: theme === "dark" ? "light" : "dark"}),
     "cmd+l": () => setShowLiveMode(true),
@@ -179,8 +186,9 @@ export default function App() {
       
       const ai = await getAI();
       console.log('Sending message to model...');
+      const textModel = settings.models?.text ?? 'gemini-3.1-pro-preview';
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
+        model: textModel,
         contents: content,
         config: {
           systemInstruction: systemInstruction.trim() ? systemInstruction : undefined,
@@ -188,8 +196,27 @@ export default function App() {
       });
       console.log('Response received from model!', response);
 
-      const responseText = typeof response.text === 'function' ? response.text() : (response.text || '');
+      // SDK 1.29 types `response.text` as a getter; some runtime builds expose it as a function.
+      // The empirical sweep confirmed both shapes occur — keep ternary, cast to bypass tsc getter type.
+      // See Documents/08_EMPIRICAL_STATE_2026-04-13.md for context.
+      const textOrFn: any = (response as any).text;
+      const responseText: string = typeof textOrFn === 'function' ? textOrFn() : (textOrFn || '');
       console.log('Response text:', responseText);
+
+      // Phase 3b — log cost for this chat call (best-effort; never block UX on failure).
+      try {
+        const usage: any = (response as any).usageMetadata ?? {};
+        await costLedger.record({
+          timestamp: Date.now(),
+          model: textModel,
+          capability: 'chat',
+          inputTokens: usage.promptTokenCount ?? 0,
+          outputTokens: usage.candidatesTokenCount ?? 0,
+          thinkingTokens: usage.thoughtsTokenCount ?? 0,
+        });
+      } catch (costErr) {
+        logger.warn('[cost-ledger] Failed to record chat cost', costErr);
+      }
       
       // Detect artifacts in the response
       const detectedArtifacts = detectArtifacts(responseText);
@@ -288,6 +315,11 @@ export default function App() {
       {showHelp && <Help onClose={() => setShowHelp(false)} />}
       {showShortcutEditor && <ShortcutEditor onClose={() => setShowShortcutEditor(false)} shortcuts={shortcuts} />}
       {showLiveMode && <LiveMode onClose={() => setShowLiveMode(false)} />}
+      <Integrations
+        isOpen={showIntegrations}
+        onClose={() => setShowIntegrations(false)}
+        gcpClientId={settings.cost?.gcpProjectId}
+      />
 
       {/* MCP Permission Modal */}
       {mcpRequest && (

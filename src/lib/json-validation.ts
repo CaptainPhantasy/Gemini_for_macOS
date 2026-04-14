@@ -17,7 +17,7 @@ export function parseAppSettingsJSON(data: unknown): AppSettings {
     notebookLmEnabled: false,
     searchEnabled: true,
     mcpServers: [
-      { id: 'default-ws', name: 'Default Local Server', type: 'websocket', url: 'ws://localhost:3001/mcp', enabled: true }
+      { id: 'default-ws', name: 'Default Local Server', type: 'websocket', url: 'ws://localhost:13001/mcp', enabled: true }
     ],
     geminiApiKey: ''
   };

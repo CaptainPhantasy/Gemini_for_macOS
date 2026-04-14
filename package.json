@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "GEMINI desktop workspace with MCP capabilities, multimodal AI, and local-first architecture",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite --port=13000 --host=0.0.0.0",
@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "type-check": "tsc --noEmit",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage"
@@ -26,8 +27,10 @@
     "dompurify": "^3.3.3",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "idb": "^8.0.3",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "pi": "^2.0.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",

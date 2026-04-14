@@ -48,6 +48,15 @@ export async function getAI(): Promise<GoogleGenAI> {
 }
 
 /**
+ * Get the currently-active API key (after initializeAI has run).
+ * Used by code paths that must fetch authenticated Google endpoints
+ * directly (e.g. Veo file downloads need x-goog-api-key on the GET).
+ */
+export function getApiKey(): string | null {
+  return _currentApiKey;
+}
+
+/**
  * Reset the AI client (for testing)
  */
 export function resetAI(): void {

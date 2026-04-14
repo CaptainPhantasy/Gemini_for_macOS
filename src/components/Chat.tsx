@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react';
 import { Message } from '../types';
 import { SafeMarkdown } from './SafeMarkdown';
 import { Send, Mic, Image as ImageIcon, Video, Play, Square, Upload } from 'lucide-react';
-import { multimodal } from '../lib/multimodal';
 
 interface ChatProps {
   messages: Message[];
@@ -43,15 +42,17 @@ export function Chat({ messages, onSendMessage, onOpenArtifact }: ChatProps) {
       }
       setIsLiveMode(false);
     } else {
-      // Start live mode
+      // Start live mode — inline quick-preview (use LiveChooser/LiveSessionPanel from Sidebar Live Mode for full session)
       setIsLiveMode(true);
-      if (videoRef.current) {
-        const stream = await multimodal.startCameraStream(videoRef.current);
-        if (stream) {
-          setMediaStream(stream);
-        } else {
-          setIsLiveMode(false);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        setMediaStream(stream);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
         }
+      } catch (err) {
+        console.error('Chat inline live preview failed:', err);
+        setIsLiveMode(false);
       }
     }
   };

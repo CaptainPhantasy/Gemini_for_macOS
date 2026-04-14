@@ -1,6 +1,10 @@
+import { useEffect, useState } from 'react';
 import { X, Download, Shield, ShieldAlert, Zap, Lock, Globe, HardDrive, BookOpen } from 'lucide-react';
 import { backup } from '../lib/backup';
-import { AppSettings, AutonomyMode } from '../types';
+import { AppSettings, AutonomyMode, ModelSettings, DEFAULT_MODEL_SETTINGS } from '../types';
+import { MODEL_CATALOG, DEFAULT_MODEL_IDS } from '../lib/model-catalog';
+import { costLedger, type LedgerEntry } from '../lib/cost-ledger';
+import { fetchProjectBillingInfo } from '../lib/cloud-billing';
 
 interface SettingsProps {
   onClose: () => void;
@@ -8,9 +12,118 @@ interface SettingsProps {
   onUpdateSettings: (settings: AppSettings) => void;
 }
 
+const MODEL_CAPABILITY_LABELS: Record<keyof ModelSettings, string> = {
+  text: 'Text / Chat',
+  textFallback: 'Text Fallback',
+  imagePro: 'Image (Pro)',
+  imageFlash: 'Image (Flash)',
+  video: 'Video',
+  music: 'Music',
+  tts: 'Text-to-Speech',
+  liveAudio: 'Live Audio',
+};
+
+const CUSTOM_MODEL_SENTINEL = '__custom__';
+
 export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps) {
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     onUpdateSettings({ ...settings, [key]: value });
+  };
+
+  const currentModels: ModelSettings = { ...DEFAULT_MODEL_SETTINGS, ...(settings.models ?? {}) };
+
+  const updateModel = (capability: keyof ModelSettings, modelId: string) => {
+    onUpdateSettings({
+      ...settings,
+      models: { ...currentModels, [capability]: modelId },
+    });
+  };
+
+  const updateThinkingBudget = (kind: 'text' | 'vision', value: number) => {
+    const existing = settings.thinkingBudgets ?? { text: 8192, vision: 4096 };
+    onUpdateSettings({
+      ...settings,
+      thinkingBudgets: { ...existing, [kind]: value },
+    });
+  };
+
+  const updateCost = <K extends keyof NonNullable<AppSettings['cost']>>(
+    key: K,
+    value: NonNullable<AppSettings['cost']>[K]
+  ) => {
+    const existing = settings.cost ?? {
+      gcpProjectId: '',
+      billingAccountId: '',
+      dailyThresholdUsd: 5,
+      monthlyThresholdUsd: 100,
+      showInSidebar: false,
+    };
+    onUpdateSettings({
+      ...settings,
+      cost: { ...existing, [key]: value },
+    });
+  };
+
+  const updateLiveMode = (
+    key: keyof NonNullable<AppSettings['liveMode']>,
+    value: boolean
+  ) => {
+    const existing = settings.liveMode ?? {
+      voiceTranscriptionEnabled: false,
+      cameraTranscriptionEnabled: true,
+      screenTranscriptionEnabled: true,
+    };
+    onUpdateSettings({
+      ...settings,
+      liveMode: { ...existing, [key]: value },
+    });
+  };
+
+  // Cost & usage local state (loaded once on mount).
+  const [todayUsd, setTodayUsd] = useState<number>(0);
+  const [monthUsd, setMonthUsd] = useState<number>(0);
+  const [breakdown, setBreakdown] = useState<Record<string, number>>({});
+  const [history, setHistory] = useState<LedgerEntry[]>([]);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [billingStatus, setBillingStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [today, month, byCap, hist] = await Promise.all([
+          costLedger.todayUsd(),
+          costLedger.monthUsd(),
+          costLedger.byCapability(),
+          costLedger.history(30),
+        ]);
+        if (cancelled) return;
+        setTodayUsd(today);
+        setMonthUsd(month);
+        setBreakdown(byCap);
+        setHistory(hist);
+      } catch {
+        // Swallow — cost pane simply shows zeros if the ledger is unavailable.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSyncCloudBilling = async () => {
+    const projectId = settings.cost?.gcpProjectId;
+    if (!projectId) {
+      setSyncResult('Missing GCP project ID.');
+      return;
+    }
+    // Real OAuth-token retrieval is not yet wired; placeholder until then.
+    // Reference fetchProjectBillingInfo so it stays in scope and ready to use.
+    void fetchProjectBillingInfo;
+    setSyncResult(
+      'Cloud Billing sync requires a Google OAuth connection. Use Integrations → Connect Google.'
+    );
+    setBillingStatus(null);
   };
 
   const autonomyOptions: { mode: AutonomyMode; label: string; icon: any; desc: string }[] = [
@@ -250,7 +363,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                           newServers[index] = { ...server, url: e.target.value };
                           updateSetting('mcpServers', newServers);
                         }}
-                        placeholder="e.g. ws://localhost:3001/mcp"
+                        placeholder="e.g. ws://localhost:13001/mcp"
                         className="w-full px-3 py-1.5 text-sm bg-white dark:bg-[#2a2b2c] border border-gray-200 dark:border-gray-700 rounded"
                       />
                     </div>
@@ -274,6 +387,213 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
               >
                 + Add MCP Server
               </button>
+            </div>
+          </section>
+
+          {/* Models Section */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">Models</h3>
+            <div className="space-y-4">
+              {(Object.keys(MODEL_CAPABILITY_LABELS) as (keyof ModelSettings)[]).map((capability) => {
+                const catalogKey = capability === 'textFallback' ? 'text' : capability;
+                const options = (MODEL_CATALOG as Record<string, readonly { id: string; label: string }[]>)[catalogKey] ?? [];
+                const currentValue = currentModels[capability] ?? DEFAULT_MODEL_IDS[capability as keyof typeof DEFAULT_MODEL_IDS];
+                const isCustom = !options.some((opt) => opt.id === currentValue);
+                const selectValue = isCustom ? CUSTOM_MODEL_SENTINEL : currentValue;
+                return (
+                  <div key={capability}>
+                    <label className="block text-xs font-medium text-gray-500 mb-2">
+                      {MODEL_CAPABILITY_LABELS[capability]}
+                    </label>
+                    <select
+                      value={selectValue}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (next === CUSTOM_MODEL_SENTINEL) {
+                          updateModel(capability, '');
+                        } else {
+                          updateModel(capability, next);
+                        }
+                      }}
+                      className="w-full px-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-100 dark:border-gray-800 rounded-lg text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {options.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                      <option value={CUSTOM_MODEL_SENTINEL}>Custom…</option>
+                    </select>
+                    {isCustom && (
+                      <input
+                        type="text"
+                        value={currentValue}
+                        onChange={(e) => updateModel(capability, e.target.value)}
+                        placeholder="Enter custom model id"
+                        className="mt-2 w-full px-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-100 dark:border-gray-800 rounded-lg text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-2">
+                  Chat thinking budget ({settings.thinkingBudgets?.text ?? 8192} tokens)
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={32768}
+                  step={256}
+                  value={settings.thinkingBudgets?.text ?? 8192}
+                  onChange={(e) => updateThinkingBudget('text', Number(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-2">
+                  Vision thinking budget ({settings.thinkingBudgets?.vision ?? 4096} tokens)
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={32768}
+                  step={256}
+                  value={settings.thinkingBudgets?.vision ?? 4096}
+                  onChange={(e) => updateThinkingBudget('vision', Number(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* Cost & Usage Section */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">Cost &amp; Usage</h3>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-4 bg-gray-50 dark:bg-[#131314] rounded-xl border border-gray-100 dark:border-gray-800">
+                  <div className="text-xs text-gray-500 mb-1">Today</div>
+                  <div className="text-lg font-semibold text-gray-900 dark:text-white">${todayUsd.toFixed(2)}</div>
+                </div>
+                <div className="p-4 bg-gray-50 dark:bg-[#131314] rounded-xl border border-gray-100 dark:border-gray-800">
+                  <div className="text-xs text-gray-500 mb-1">This Month</div>
+                  <div className="text-lg font-semibold text-gray-900 dark:text-white">${monthUsd.toFixed(2)}</div>
+                </div>
+              </div>
+
+              {Object.keys(breakdown).length > 0 && (
+                <div className="p-4 bg-gray-50 dark:bg-[#131314] rounded-xl border border-gray-100 dark:border-gray-800">
+                  <div className="text-xs font-medium text-gray-500 mb-2">Today by capability</div>
+                  <ul className="text-sm text-gray-700 dark:text-gray-300 space-y-1">
+                    {Object.entries(breakdown).map(([cap, usd]) => (
+                      <li key={cap} className="flex justify-between">
+                        <span className="capitalize">{cap}</span>
+                        <span>${usd.toFixed(4)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-2">Daily threshold (USD)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    value={settings.cost?.dailyThresholdUsd ?? 5}
+                    onChange={(e) => updateCost('dailyThresholdUsd', Number(e.target.value))}
+                    className="w-full px-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-100 dark:border-gray-800 rounded-lg text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-2">Monthly threshold (USD)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={settings.cost?.monthlyThresholdUsd ?? 100}
+                    onChange={(e) => updateCost('monthlyThresholdUsd', Number(e.target.value))}
+                    className="w-full px-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-100 dark:border-gray-800 rounded-lg text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-2">GCP Project ID</label>
+                <input
+                  type="text"
+                  value={settings.cost?.gcpProjectId ?? ''}
+                  onChange={(e) => updateCost('gcpProjectId', e.target.value)}
+                  placeholder="my-gcp-project"
+                  className="w-full px-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-100 dark:border-gray-800 rounded-lg text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <button
+                onClick={handleSyncCloudBilling}
+                className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+              >
+                Sync with Cloud Billing
+              </button>
+              {syncResult && (
+                <div className="text-xs text-gray-500 dark:text-gray-400">{syncResult}</div>
+              )}
+              {billingStatus && (
+                <div className="text-xs text-gray-700 dark:text-gray-300">{billingStatus}</div>
+              )}
+
+              {history.length > 0 && (
+                <div className="p-4 bg-gray-50 dark:bg-[#131314] rounded-xl border border-gray-100 dark:border-gray-800 max-h-48 overflow-y-auto">
+                  <div className="text-xs font-medium text-gray-500 mb-2">Recent activity (30 days)</div>
+                  <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+                    {history.map((entry) => (
+                      <li key={entry.id} className="flex justify-between gap-2">
+                        <span>{new Date(entry.timestamp).toLocaleDateString()}</span>
+                        <span className="truncate">{entry.capability}</span>
+                        <span>${entry.estimatedCostUsd.toFixed(4)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Live Mode Section */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">Live Mode</h3>
+            <div className="space-y-3">
+              <label className="flex items-center justify-between p-4 bg-gray-50 dark:bg-[#131314] rounded-xl border border-gray-100 dark:border-gray-800 cursor-pointer">
+                <span className="text-sm text-gray-900 dark:text-white">Voice transcription</span>
+                <input
+                  type="checkbox"
+                  checked={settings.liveMode?.voiceTranscriptionEnabled ?? false}
+                  onChange={(e) => updateLiveMode('voiceTranscriptionEnabled', e.target.checked)}
+                  className="h-4 w-4"
+                />
+              </label>
+              <label className="flex items-center justify-between p-4 bg-gray-50 dark:bg-[#131314] rounded-xl border border-gray-100 dark:border-gray-800 cursor-pointer">
+                <span className="text-sm text-gray-900 dark:text-white">Camera transcription</span>
+                <input
+                  type="checkbox"
+                  checked={settings.liveMode?.cameraTranscriptionEnabled ?? true}
+                  onChange={(e) => updateLiveMode('cameraTranscriptionEnabled', e.target.checked)}
+                  className="h-4 w-4"
+                />
+              </label>
+              <label className="flex items-center justify-between p-4 bg-gray-50 dark:bg-[#131314] rounded-xl border border-gray-100 dark:border-gray-800 cursor-pointer">
+                <span className="text-sm text-gray-900 dark:text-white">Screen transcription</span>
+                <input
+                  type="checkbox"
+                  checked={settings.liveMode?.screenTranscriptionEnabled ?? true}
+                  onChange={(e) => updateLiveMode('screenTranscriptionEnabled', e.target.checked)}
+                  className="h-4 w-4"
+                />
+              </label>
             </div>
           </section>
 

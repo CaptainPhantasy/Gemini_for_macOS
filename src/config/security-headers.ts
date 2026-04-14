@@ -22,7 +22,7 @@ export const SECURITY_HEADERS = {
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: https:",
     "media-src 'self' https:",
-    "connect-src 'self' https://generativelanguage.googleapis.com wss://localhost:3001",
+    "connect-src 'self' https://generativelanguage.googleapis.com ws://localhost:13001 wss://localhost:13001",
     "frame-ancestors 'self'",
     "base-uri 'self'",
     "form-action 'self'"

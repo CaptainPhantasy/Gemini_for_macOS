@@ -8,7 +8,7 @@ export class MCPClient {
   private serverConfigs: McpServerConfig[] = [];
   private isConnected = false;
 
-  constructor(private serverUrl: string = 'ws://localhost:3001/mcp') {}
+  constructor(private serverUrl: string = 'ws://localhost:13001/mcp') {}
 
   setPermissionHandler(handler: (action: string, path: string) => Promise<boolean>) {
     this.permissionHandler = handler;
