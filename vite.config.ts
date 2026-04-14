@@ -32,6 +32,11 @@ server: {
       host: '0.0.0.0',
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       hmr: process.env.DISABLE_HMR !== 'true',
+      // Allow LAN + Tailscale access. Vite 5.2+ blocks non-localhost Host
+      // headers by default as DNS-rebinding protection; since this is a
+      // personal tool served only on the home LAN + private tailnet, we
+      // accept any host so that MagicDNS names (e.g. *.ts.net) work.
+      allowedHosts: true,
     },
   };
 });

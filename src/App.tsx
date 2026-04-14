@@ -26,7 +26,7 @@ import { setupAutosave } from "./lib/autosave";
 import { windowState } from "./lib/windowState";
 import { costLedger } from "./lib/cost-ledger";
 import { logger } from "./lib/logger";
-import { Search as SearchIcon, Plus, Moon, Sun, Settings as SettingsIcon, Camera, Link, Library, Puzzle, Keyboard } from "lucide-react";
+import { Search as SearchIcon, Plus, Moon, Sun, Settings as SettingsIcon, Camera, Link, Library, Puzzle, Keyboard, Menu } from "lucide-react";
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -49,6 +49,17 @@ export default function App() {
   const [, setShowPlugins] = useState(false);
   const [tabbedThreads, setTabbedThreads] = useState<string[]>([]);
   const [settings, setSettings] = useState<AppSettings>(storage.getSettings());
+
+  // Mobile sidebar drawer state. The CSS in index.css handles the slide-in
+  // animation and only activates below 768px — on desktop this state is a
+  // no-op because `.mobile-sidebar-wrap` collapses to `display: contents`.
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const closeMobileSidebar = () => setMobileSidebarOpen(false);
+  // Wrap any sidebar callback so picking an item also closes the drawer.
+  const whileClosingDrawer = (fn: () => void) => () => {
+    closeMobileSidebar();
+    fn();
+  };
 
   const theme = settings.theme === 'system' 
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
@@ -267,28 +278,51 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 font-sans">
-      <Sidebar 
-        threads={threads}
-        activeThreadId={activeThreadId}
-        onSelectThread={(id) => {
-          setActiveThreadId(id);
-          setActiveArtifact(null);
-        }}
-        onNewThread={handleNewThread}
-        onOpenSettings={() => setShowSettings(true)}
-        onOpenGems={() => setShowGems(true)}
-        onOpenSchedule={() => setShowSchedule(true)}
-        onOpenPI={() => setShowPI(true)}
-        onOpenArtifacts={() => setShowArtifacts(true)}
-        onOpenLiveMode={() => setShowLiveMode(true)}
-        onOpenIntegrations={() => setShowIntegrations(true)}
-        onOpenPlugins={() => setShowPlugins(true)}
-        onOpenHelp={() => setShowHelp(true)}
-        onOpenShortcutEditor={() => setShowShortcutEditor(true)}
-        tabbedThreads={tabbedThreads}
-        onAddTab={(id: string) => setTabbedThreads(prev => [...new Set([...prev, id])])}
-        onRemoveTab={(id: string) => setTabbedThreads(prev => prev.filter(t => t !== id))}
-      />
+      {/* Mobile hamburger — hidden on desktop via CSS media query. */}
+      <button
+        type="button"
+        className="mobile-hamburger"
+        aria-label="Open sidebar"
+        onClick={() => setMobileSidebarOpen(true)}
+      >
+        <Menu size={20} />
+      </button>
+
+      {/* Mobile backdrop — only rendered when drawer is open. Desktop CSS
+          hides it unconditionally. */}
+      {mobileSidebarOpen && (
+        <div
+          role="presentation"
+          className="mobile-backdrop"
+          onClick={closeMobileSidebar}
+        />
+      )}
+
+      <div className={`mobile-sidebar-wrap ${mobileSidebarOpen ? 'open' : ''}`}>
+        <Sidebar
+          threads={threads}
+          activeThreadId={activeThreadId}
+          onSelectThread={(id) => {
+            closeMobileSidebar();
+            setActiveThreadId(id);
+            setActiveArtifact(null);
+          }}
+          onNewThread={whileClosingDrawer(handleNewThread)}
+          onOpenSettings={whileClosingDrawer(() => setShowSettings(true))}
+          onOpenGems={whileClosingDrawer(() => setShowGems(true))}
+          onOpenSchedule={whileClosingDrawer(() => setShowSchedule(true))}
+          onOpenPI={whileClosingDrawer(() => setShowPI(true))}
+          onOpenArtifacts={whileClosingDrawer(() => setShowArtifacts(true))}
+          onOpenLiveMode={whileClosingDrawer(() => setShowLiveMode(true))}
+          onOpenIntegrations={whileClosingDrawer(() => setShowIntegrations(true))}
+          onOpenPlugins={whileClosingDrawer(() => setShowPlugins(true))}
+          onOpenHelp={whileClosingDrawer(() => setShowHelp(true))}
+          onOpenShortcutEditor={whileClosingDrawer(() => setShowShortcutEditor(true))}
+          tabbedThreads={tabbedThreads}
+          onAddTab={(id: string) => setTabbedThreads(prev => [...new Set([...prev, id])])}
+          onRemoveTab={(id: string) => setTabbedThreads(prev => prev.filter(t => t !== id))}
+        />
+      </div>
       
       <div className="flex-1 flex relative" role="main" aria-label="Main chat area">
         <Chat 
