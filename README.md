@@ -1,4 +1,4 @@
-<video src="./public/splash.mp4" autoplay loop muted playsinline controls></video>
+![Gemini Studio for macOS — Floyd's Labs / Legacy AI](./public/splash.webp)
 
 # Gemini Studio for macOS
 
