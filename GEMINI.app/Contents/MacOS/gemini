@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# GEMINI Launcher - Opens Terminal and starts the complete development environment
+
+# Get the directory where this app is located (the project root)
+# GEMINI.app is in the project root, so Contents/MacOS/gemini is 3 levels deep
+SCRIPT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+
+# Create an applescript to run the launcher in Terminal
+APPLESCRIPT=$(cat <<'EOF'
+on run
+    tell application "Terminal"
+        activate
+        do script "cd '%SCRIPT_DIR%' && bash launch-gemini.sh"
+    end tell
+end run
+EOF
+)
+
+# Replace placeholder with actual path (escape for AppleScript)
+APPLESCRIPT="${APPLESCRIPT//%SCRIPT_DIR%/$SCRIPT_DIR}"
+
+# Run the AppleScript
+osascript -e "$APPLESCRIPT"

@@ -1,5 +1,18 @@
 import { McpServerConfig } from '../types';
 
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface ToolResult {
+  content: Array<{
+    type: string;
+    text: string;
+  }>;
+}
+
 export class MCPClient {
   private ws: WebSocket | null = null;
   private messageId = 0;
@@ -7,6 +20,7 @@ export class MCPClient {
   private permissionHandler: ((action: string, path: string) => Promise<boolean>) | null = null;
   private serverConfigs: McpServerConfig[] = [];
   private isConnected = false;
+  private tools: ToolDefinition[] = [];
 
   constructor(private serverUrl: string = 'ws://localhost:13001/mcp') {}
 
@@ -32,10 +46,16 @@ export class MCPClient {
       try {
         this.ws = new WebSocket(this.serverUrl);
         
-        this.ws.onopen = () => {
+        this.ws.onopen = async () => {
           this.isConnected = true;
           if (this.serverConfigs.length > 0) {
             this.sendRequest('mcp/configure_servers', { servers: this.serverConfigs }).catch(console.warn);
+          }
+          // Load available tools on connection
+          try {
+            await this.loadTools();
+          } catch (e) {
+            console.warn('Failed to load MCP tools:', e);
           }
           resolve();
         };
@@ -111,12 +131,57 @@ export class MCPClient {
     return false;
   }
 
+  /**
+   * Load available tools from the MCP server
+   */
+  private async loadTools(): Promise<void> {
+    try {
+      const result = await this.sendRequest('tools/list', {});
+      if (result && typeof result === 'object' && 'tools' in result) {
+        const toolsResult = result as { tools: ToolDefinition[] };
+        this.tools = toolsResult.tools;
+        console.log(`✓ Loaded ${this.tools.length} MCP tools`);
+      }
+    } catch (error) {
+      console.warn('Failed to load tools from MCP server:', error);
+    }
+  }
+
+  /**
+   * Get all available tools for agent use
+   */
+  getAvailableTools(): ToolDefinition[] {
+    return this.tools;
+  }
+
+  /**
+   * Execute a tool with automatic permission handling
+   */
+  async executeTool(toolName: string, args: Record<string, unknown>): Promise<unknown> {
+    // Determine action type from tool name
+    let action = 'READ';
+    if (toolName.includes('write') || toolName.includes('delete') || toolName.includes('create')) {
+      action = 'WRITE';
+    } else if (toolName.includes('execute')) {
+      action = 'EXECUTE';
+    }
+
+    // Request permission if needed
+    const path = (args.path || args.command || toolName) as string;
+    const allowed = await this.requestPermission(action, path);
+    if (!allowed) {
+      throw new Error(`Tool execution denied: ${toolName}`);
+    }
+
+    return await this.sendRequest('tools/call', {
+      name: toolName,
+      arguments: args
+    });
+  }
+
   async readFile(path: string): Promise<string> {
     try {
-      const result = await this.sendRequest('tools/call', {
-        name: 'read_file',
-        arguments: { path }
-      });
+      const result = await this.executeTool('read_file', { path });
       
       // Add bounds checking and validation
       if (typeof result !== 'object' || result === null || !('content' in result)) {
@@ -142,16 +207,7 @@ export class MCPClient {
 
   async writeFile(path: string, content: string): Promise<boolean> {
     try {
-      const allowed = await this.requestPermission('WRITE', path);
-      if (!allowed) {
-        console.warn('Write operation denied by user.');
-        return false;
-      }
-      
-      await this.sendRequest('tools/call', {
-        name: 'write_file',
-        arguments: { path, content }
-      });
+      await this.executeTool('write_file', { path, content });
       return true;
     } catch (error) {
       console.error(`Failed to write file ${path}:`, error);
@@ -160,19 +216,53 @@ export class MCPClient {
   }
 
   async execute(command: string): Promise<boolean> {
-    const allowed = await this.requestPermission('EXECUTE', command);
-    if (!allowed) {
-      throw new Error('Execute operation denied by user.');
-    }
-    
     try {
-      await this.sendRequest('tools/call', {
-        name: 'execute_command',
-        arguments: { command }
-      });
+      await this.executeTool('execute_command', { command });
       return true;
     } catch (error) {
       console.error(`Failed to execute command ${command}:`, error);
+      throw error;
+    }
+  }
+
+  async listDirectory(path: string): Promise<Array<{ name: string; type: string }>> {
+    try {
+      const result = await this.executeTool('list_directory', { path }) as any;
+      if (result.entries) {
+        return result.entries;
+      }
+      throw new Error('Invalid directory listing response');
+    } catch (error) {
+      console.error(`Failed to list directory ${path}:`, error);
+      throw error;
+    }
+  }
+
+  async deleteFile(path: string): Promise<boolean> {
+    try {
+      await this.executeTool('delete_file', { path });
+      return true;
+    } catch (error) {
+      console.error(`Failed to delete file ${path}:`, error);
+      return false;
+    }
+  }
+
+  async createDirectory(path: string): Promise<boolean> {
+    try {
+      await this.executeTool('create_directory', { path });
+      return true;
+    } catch (error) {
+      console.error(`Failed to create directory ${path}:`, error);
+      return false;
+    }
+  }
+
+  async getFileInfo(path: string): Promise<any> {
+    try {
+      return await this.executeTool('file_info', { path });
+    } catch (error) {
+      console.error(`Failed to get file info for ${path}:`, error);
       throw error;
     }
   }

@@ -19,3 +19,9 @@ test-results/
 .pi/
 .pi-lens/
 .sprint/
+# Claude Code / harness runtime state (ephemeral)
+.bg-shell/
+
+# agent memory directory — track README, ignore runtime session files
+.gemini-memory/*
+!.gemini-memory/README.md

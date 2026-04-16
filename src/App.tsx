@@ -10,6 +10,7 @@ import { ArtifactLibrary } from './components/ArtifactLibrary';
 import { Thread, Message, Artifact, AppSettings } from './types';
 import { storage } from './lib/storage';
 import { mcpClient } from './lib/mcp';
+import { buildAgentSystemPrompt, parseToolRequest } from './lib/agent-tools';
 import { v4 as uuidv4 } from 'uuid';
 import { getAI } from './lib/api-config';
 import { SplashScreen } from './components/SplashScreen';
@@ -193,25 +194,84 @@ export default function App() {
     // Generate response
     try {
       const pi = storage.getPersonalIntelligence();
-      const systemInstruction = `User Preferences: ${pi.preferences}\nInstructions: ${pi.instructions}`;
-      
-      const ai = await getAI();
-      console.log('Sending message to model...');
-      const textModel = settings.models?.text ?? 'gemini-3.1-pro-preview';
-      const response = await ai.models.generateContent({
-        model: textModel,
-        contents: content,
-        config: {
-          systemInstruction: systemInstruction.trim() ? systemInstruction : undefined,
-        }
-      });
-      console.log('Response received from model!', response);
+      const userPrefs = `User Preferences: ${pi.preferences}\nInstructions: ${pi.instructions}`;
 
-      // SDK 1.29 types `response.text` as a getter; some runtime builds expose it as a function.
-      // The empirical sweep confirmed both shapes occur — keep ternary, cast to bypass tsc getter type.
-      // See Documents/08_EMPIRICAL_STATE_2026-04-13.md for context.
-      const textOrFn: any = (response as any).text;
-      const responseText: string = typeof textOrFn === 'function' ? textOrFn() : (textOrFn || '');
+      // Tool-aware system prompt — teaches the model about Desktop Commander MCP
+      // capabilities, its persistent memory directory, and the Tool:/Args: protocol
+      // that parseToolRequest understands.
+      const tools = mcpClient.getAvailableTools();
+      const toolPrompt = buildAgentSystemPrompt(tools);
+      const memoryNotice =
+        `PERSISTENT MEMORY:\n` +
+        `You have a durable memory directory at ` +
+        `"/Volumes/SanDisk1Tb/GEMINI for MacOS/.gemini-memory/". ` +
+        `Use read_file on .gemini-memory/summary.md at the start of a task to ` +
+        `restore prior context, and write_file to update it with durable facts. ` +
+        `Never store secrets there. See .gemini-memory/README.md for layout.`;
+      const systemInstruction = [toolPrompt, memoryNotice, userPrefs]
+        .filter(Boolean)
+        .join('\n\n');
+
+      // Conversation history — send the full thread so the model does not
+      // "lose context" between turns. Map our Message shape to Gemini content parts.
+      const historyContents = updatedMessages.map((m) => ({
+        role: m.role === 'model' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      }));
+
+      const ai = await getAI();
+      console.log('Sending message to model with history:', historyContents.length, 'turns');
+      const textModel = settings.models?.text ?? 'gemini-3.1-pro-preview';
+
+      // Tool-call loop: allow the model to emit Tool:/Args: blocks, execute them
+      // via MCP, and feed results back. Cap at 5 iterations to avoid runaway loops.
+      const workingContents: Array<{ role: string; parts: Array<{ text: string }> }> = [
+        ...historyContents,
+      ];
+      let response: any;
+      let responseText = '';
+      for (let iter = 0; iter < 5; iter++) {
+        response = await ai.models.generateContent({
+          model: textModel,
+          contents: workingContents,
+          config: {
+            systemInstruction: systemInstruction.trim() ? systemInstruction : undefined,
+          },
+        });
+        const textOrFn: any = (response as any).text;
+        responseText = typeof textOrFn === 'function' ? textOrFn() : textOrFn || '';
+
+        const toolReq = parseToolRequest(responseText);
+        if (!toolReq) break;
+
+        try {
+          const toolResult = await mcpClient.executeTool(toolReq.toolName, toolReq.args);
+          const resultText =
+            typeof toolResult === 'string'
+              ? toolResult
+              : JSON.stringify(toolResult, null, 2);
+          workingContents.push(
+            { role: 'model', parts: [{ text: responseText }] },
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: `TOOL_RESULT ${toolReq.toolName}:\n${resultText}`,
+                },
+              ],
+            }
+          );
+        } catch (toolErr) {
+          workingContents.push(
+            { role: 'model', parts: [{ text: responseText }] },
+            {
+              role: 'user',
+              parts: [{ text: `TOOL_ERROR ${toolReq.toolName}: ${String(toolErr)}` }],
+            }
+          );
+        }
+      }
+      console.log('Final response text:', responseText);
       console.log('Response text:', responseText);
 
       // Phase 3b — log cost for this chat call (best-effort; never block UX on failure).

@@ -1,0 +1,46 @@
+{
+  "name": "GEMINI Agent Configuration",
+  "description": "Desktop Commander MCP integration for local-first AI with file system access",
+  "version": "1.0.0",
+  "mcpServers": [
+    {
+      "id": "desktop-commander",
+      "name": "Desktop Commander MCP",
+      "type": "websocket",
+      "url": "ws://localhost:13001/mcp",
+      "enabled": true,
+      "description": "Local file system access with read/write/execute capabilities"
+    }
+  ],
+  "agentCapabilities": {
+    "fileSystem": {
+      "read": true,
+      "write": true,
+      "delete": true,
+      "execute": true
+    },
+    "directoryOperations": true,
+    "commandExecution": true
+  },
+  "permissionModel": {
+    "autonomyMode": "yolo",
+    "scopedPaths": [
+      "/Users",
+      "/Volumes",
+      "/tmp"
+    ],
+    "autoApproveRead": true,
+    "requireApprovalWrite": false,
+    "requireApprovalExecute": false
+  },
+  "systemPrompt": "You are the GEMINI Agent, a powerful local-first AI assistant with real file system access through Desktop Commander MCP. You have full read/write access to the file system and can execute commands. Use these capabilities responsibly to help the user accomplish their goals.",
+  "tools": [
+    "read_file",
+    "write_file",
+    "list_directory",
+    "execute_command",
+    "delete_file",
+    "create_directory",
+    "file_info"
+  ]
+}
