@@ -11,6 +11,7 @@ import { Thread, Message, Artifact, AppSettings } from './types';
 import { storage } from './lib/storage';
 import { mcpClient } from './lib/mcp';
 import { buildAgentSystemPrompt, parseToolRequest } from './lib/agent-tools';
+import { autoSyncArtifact } from './lib/drive-sync';
 import { v4 as uuidv4 } from 'uuid';
 import { getAI } from './lib/api-config';
 import { SplashScreen } from './components/SplashScreen';
@@ -27,7 +28,7 @@ import { setupAutosave } from "./lib/autosave";
 import { windowState } from "./lib/windowState";
 import { costLedger } from "./lib/cost-ledger";
 import { logger } from "./lib/logger";
-import { Search as SearchIcon, Plus, Moon, Sun, Settings as SettingsIcon, Camera, Link, Library, Puzzle, Keyboard, Menu } from "lucide-react";
+import { Search as SearchIcon, Plus, Moon, Sun, Settings as SettingsIcon, Camera, Menu } from "lucide-react";
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -46,9 +47,6 @@ export default function App() {
   const [showShortcutEditor, setShowShortcutEditor] = useState(false);
   const [showLiveMode, setShowLiveMode] = useState(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
-  // Plugins panel deferred per Plan v3 — stub state retained so Sidebar prop signature stays stable.
-  const [, setShowPlugins] = useState(false);
-  const [tabbedThreads, setTabbedThreads] = useState<string[]>([]);
   const [settings, setSettings] = useState<AppSettings>(storage.getSettings());
 
   // Mobile sidebar drawer state. The CSS in index.css handles the slide-in
@@ -134,6 +132,34 @@ export default function App() {
   
   
 
+  const handleDeleteThread = async (id: string) => {
+    await storage.deleteThread(id);
+    const remaining = storage.getThreads();
+    setThreads([...remaining]);
+    if (activeThreadId === id) {
+      if (remaining.length > 0) {
+        setActiveThreadId(remaining[0].id);
+      } else {
+        const fresh: Thread = {
+          id: uuidv4(),
+          title: 'New Chat',
+          messages: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+        await storage.saveThread(fresh);
+        setThreads([...storage.getThreads()]);
+        setActiveThreadId(fresh.id);
+      }
+      setActiveArtifact(null);
+    }
+  };
+
+  const handleRenameThread = async (id: string, title: string) => {
+    await storage.renameThread(id, title);
+    setThreads([...storage.getThreads()]);
+  };
+
   const handleNewThread = async () => {
     const newThread: Thread = {
       id: uuidv4(),
@@ -155,7 +181,7 @@ export default function App() {
     { label: "Toggle Theme", icon: theme === "dark" ? <Sun size={16} /> : <Moon size={16} />, shortcut: "Cmd+T", action: () => handleUpdateSettings({...settings, theme: theme === "dark" ? "light" : "dark"}) },
   ];
 
-  const shortcuts = {
+  const defaultShortcuts: Record<string, () => void> = {
     "cmd+n": handleNewThread,
     "cmd+k": () => setShowSearch(true),
     // Cmd+Shift+P shadowed by Chrome incognito (Plan v3 Bug #5); rebind to Cmd+Shift+K.
@@ -165,11 +191,26 @@ export default function App() {
     "cmd+l": () => setShowLiveMode(true),
     "f1": () => setShowHelp(true),
   };
+
+  // Apply user shortcut overrides: remap default combos to custom combos.
+  const shortcutOverrides = settings.shortcutOverrides ?? {};
+  const shortcuts: Record<string, () => void> = {};
+  for (const [defaultCombo, action] of Object.entries(defaultShortcuts)) {
+    const customCombo = shortcutOverrides[defaultCombo] ?? defaultCombo;
+    shortcuts[customCombo] = action;
+  }
   useKeyboardShortcuts(shortcuts);
 
   const activeThread = threads.find(t => t.id === activeThreadId);
 
-  const handleSendMessage = async (content: string) => {
+  const handleSetGem = async (gemId: string | undefined) => {
+    if (!activeThread) return;
+    const updated = { ...activeThread, gemId, updatedAt: Date.now() };
+    await storage.saveThread(updated);
+    setThreads([...storage.getThreads()]);
+  };
+
+  const handleSendMessage = async (content: string, _type?: string, attachment?: { dataUri: string; mimeType: string; name: string }) => {
     if (!activeThread) return;
 
     const userMsg: Message = {
@@ -196,6 +237,11 @@ export default function App() {
       const pi = storage.getPersonalIntelligence();
       const userPrefs = `User Preferences: ${pi.preferences}\nInstructions: ${pi.instructions}`;
 
+      // Gem injection — if the active thread has a Gem assigned, prepend its
+      // systemInstruction so the model adopts the Gem's persona/instructions.
+      const gems = storage.getGems();
+      const activeGem = activeThread.gemId ? gems.find(g => g.id === activeThread.gemId) : null;
+
       // Tool-aware system prompt — teaches the model about Desktop Commander MCP
       // capabilities, its persistent memory directory, and the Tool:/Args: protocol
       // that parseToolRequest understands.
@@ -208,16 +254,23 @@ export default function App() {
         `Use read_file on .gemini-memory/summary.md at the start of a task to ` +
         `restore prior context, and write_file to update it with durable facts. ` +
         `Never store secrets there. See .gemini-memory/README.md for layout.`;
-      const systemInstruction = [toolPrompt, memoryNotice, userPrefs]
+      const systemInstruction = [activeGem?.systemInstruction, toolPrompt, memoryNotice, userPrefs]
         .filter(Boolean)
         .join('\n\n');
 
       // Conversation history — send the full thread so the model does not
       // "lose context" between turns. Map our Message shape to Gemini content parts.
-      const historyContents = updatedMessages.map((m) => ({
-        role: m.role === 'model' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      }));
+      // When an attachment is present, include it as inlineData on the last user message.
+      const historyContents = updatedMessages.map((m, i) => {
+        const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [{ text: m.content }];
+        if (attachment && i === updatedMessages.length - 1 && m.role === 'user') {
+          const base64 = attachment.dataUri.split(',')[1];
+          if (base64) {
+            parts.push({ inlineData: { mimeType: attachment.mimeType, data: base64 } });
+          }
+        }
+        return { role: m.role === 'model' ? 'model' : 'user', parts };
+      });
 
       const ai = await getAI();
       console.log('Sending message to model with history:', historyContents.length, 'turns');
@@ -225,7 +278,7 @@ export default function App() {
 
       // Tool-call loop: allow the model to emit Tool:/Args: blocks, execute them
       // via MCP, and feed results back. Cap at 5 iterations to avoid runaway loops.
-      const workingContents: Array<{ role: string; parts: Array<{ text: string }> }> = [
+      const workingContents: Array<{ role: string; parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> }> = [
         ...historyContents,
       ];
       let response: any;
@@ -236,6 +289,12 @@ export default function App() {
           contents: workingContents,
           config: {
             systemInstruction: systemInstruction.trim() ? systemInstruction : undefined,
+            thinkingConfig: settings.thinkingBudgets?.text
+              ? { thinkingBudget: settings.thinkingBudgets.text }
+              : undefined,
+            tools: settings.searchEnabled
+              ? [{ googleSearch: {} }]
+              : undefined,
           },
         });
         const textOrFn: any = (response as any).text;
@@ -292,9 +351,10 @@ export default function App() {
       // Detect artifacts in the response
       const detectedArtifacts = detectArtifacts(responseText);
       
-      // Save artifacts to storage
+      // Save artifacts to storage + auto-sync to Drive if enabled
       for (const artifact of detectedArtifacts) {
         await storage.saveArtifact(artifact);
+        autoSyncArtifact(artifact).catch(() => {});
       }
 
       const modelMsg: Message = {
@@ -375,26 +435,28 @@ export default function App() {
           onOpenArtifacts={whileClosingDrawer(() => setShowArtifacts(true))}
           onOpenLiveMode={whileClosingDrawer(() => setShowLiveMode(true))}
           onOpenIntegrations={whileClosingDrawer(() => setShowIntegrations(true))}
-          onOpenPlugins={whileClosingDrawer(() => setShowPlugins(true))}
           onOpenHelp={whileClosingDrawer(() => setShowHelp(true))}
           onOpenShortcutEditor={whileClosingDrawer(() => setShowShortcutEditor(true))}
-          tabbedThreads={tabbedThreads}
-          onAddTab={(id: string) => setTabbedThreads(prev => [...new Set([...prev, id])])}
-          onRemoveTab={(id: string) => setTabbedThreads(prev => prev.filter(t => t !== id))}
+          onDeleteThread={handleDeleteThread}
+          onRenameThread={handleRenameThread}
         />
       </div>
       
       <div className="flex-1 flex relative" role="main" aria-label="Main chat area">
-        <Chat 
+        <Chat
           messages={activeThread?.messages || []}
           onSendMessage={handleSendMessage}
           onOpenArtifact={(artifact) => setActiveArtifact(artifact)}
+          gems={storage.getGems().map(g => ({ id: g.id, name: g.name }))}
+          activeGemId={activeThread?.gemId}
+          onSetGem={handleSetGem}
         />
         
         {activeArtifact && (
-          <Canvas 
-            artifact={activeArtifact} 
-            onClose={() => setActiveArtifact(null)} 
+          <Canvas
+            artifact={activeArtifact}
+            onClose={() => setActiveArtifact(null)}
+            settings={settings}
           />
         )}
       </div>
@@ -407,12 +469,20 @@ export default function App() {
       {showSearch && <Search onClose={() => setShowSearch(false)} onOpenThread={(id) => setActiveThreadId(id)} onOpenArtifact={(a) => setActiveArtifact(a)} />}
       {showCommandPalette && <CommandPalette onClose={() => setShowCommandPalette(false)} actions={paletteActions} />}
       {showHelp && <Help onClose={() => setShowHelp(false)} />}
-      {showShortcutEditor && <ShortcutEditor onClose={() => setShowShortcutEditor(false)} shortcuts={shortcuts} />}
-      {showLiveMode && <LiveMode onClose={() => setShowLiveMode(false)} />}
+      {showShortcutEditor && <ShortcutEditor onClose={() => setShowShortcutEditor(false)} shortcuts={shortcuts} overrides={settings.shortcutOverrides ?? {}} onUpdateOverrides={(o) => handleUpdateSettings({ ...settings, shortcutOverrides: o })} />}
+      {showLiveMode && (
+        <LiveMode
+          onClose={() => setShowLiveMode(false)}
+          captionsDefault={settings.liveMode?.voiceTranscriptionEnabled ?? false}
+          enableCamera={settings.liveMode?.cameraTranscriptionEnabled ?? true}
+          enableScreen={settings.liveMode?.screenTranscriptionEnabled ?? true}
+        />
+      )}
       <Integrations
         isOpen={showIntegrations}
         onClose={() => setShowIntegrations(false)}
-        gcpClientId={settings.cost?.gcpProjectId}
+        gcpClientId={settings.gcpOAuthClientId}
+        notebookLmEnabled={settings.notebookLmEnabled}
       />
 
       {/* MCP Permission Modal */}

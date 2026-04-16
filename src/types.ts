@@ -13,6 +13,7 @@ export type Thread = {
   messages: Message[];
   createdAt: number;
   updatedAt: number;
+  gemId?: string;
 };
 
 export type Gem = {
@@ -103,6 +104,8 @@ export type AppSettings = {
   searchEnabled: boolean;
   mcpServers: McpServerConfig[];
   geminiApiKey: string;
+  gcpOAuthClientId: string;
+  autoSyncArtifacts: boolean;
   models?: ModelSettings;
   cost?: CostSettings;
   thinkingBudgets?: {
@@ -115,4 +118,5 @@ export type AppSettings = {
     cameraTranscriptionEnabled: boolean;
     screenTranscriptionEnabled: boolean;
   };
+  shortcutOverrides?: Record<string, string>;
 };

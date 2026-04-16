@@ -33,6 +33,9 @@ export interface LiveModeProps {
   modelId?: string;
   systemInstruction?: string;
   voiceName?: string;
+  captionsDefault?: boolean;
+  enableCamera?: boolean;
+  enableScreen?: boolean;
   onSessionEnd?: (transcript: string, metadata: Record<string, unknown>) => void;
 }
 
@@ -42,6 +45,9 @@ export function LiveMode({
   modelId,
   systemInstruction,
   voiceName,
+  captionsDefault,
+  enableCamera,
+  enableScreen,
   onSessionEnd,
 }: LiveModeProps) {
   const [mode, setMode] = useState<LiveModeKind | null>(null);
@@ -59,13 +65,19 @@ export function LiveMode({
     );
   }
 
+  const effectiveEnableVideo =
+    mode === 'camera' ? (enableCamera ?? true) :
+    mode === 'screen' ? (enableScreen ?? true) : true;
+
   return (
     <LiveSessionPanel
       mode={mode}
       onClose={handleClose}
       modelId={modelId}
       systemInstruction={systemInstruction}
+      captionsDefault={captionsDefault}
       voiceName={voiceName}
+      enableVideo={effectiveEnableVideo}
       onSessionEnd={onSessionEnd}
     />
   );

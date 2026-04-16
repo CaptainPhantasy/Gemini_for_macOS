@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react';
+import { useState, useEffect, type ReactElement } from 'react';
 import {
   X,
   HardDrive,
@@ -19,6 +19,7 @@ interface IntegrationsProps {
   isOpen: boolean;
   onClose: () => void;
   gcpClientId?: string;
+  notebookLmEnabled?: boolean;
 }
 
 type ServiceKey = 'drive' | 'docs' | 'calendar';
@@ -55,7 +56,7 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-export function Integrations({ isOpen, onClose, gcpClientId }: IntegrationsProps): ReactElement | null {
+export function Integrations({ isOpen, onClose, gcpClientId, notebookLmEnabled }: IntegrationsProps): ReactElement | null {
   const [connections, setConnections] = useState<Record<ServiceKey, ConnectionState>>({
     drive: { connected: false },
     docs: { connected: false },
@@ -65,6 +66,33 @@ export function Integrations({ isOpen, onClose, gcpClientId }: IntegrationsProps
   const [banner, setBanner] = useState<BannerState | null>(null);
   const [driveFiles, setDriveFiles] = useState<DriveFileSummary[] | null>(null);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[] | null>(null);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+
+  // Check for existing token on open — restore connection state across panel reopens
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    (async () => {
+      // Load artifacts for NotebookLM export
+      try {
+        const arts = storage.getArtifacts?.() ?? [];
+        if (!cancelled) setArtifacts(arts);
+      } catch { /* no artifacts */ }
+      // Check OAuth token
+      if (!gcpClientId) return;
+      try {
+        const token = await oauthHandler.getAccessToken(buildOAuthConfig(gcpClientId));
+        if (token && !cancelled) {
+          setConnections({
+            drive: { connected: true, connectedAt: Date.now() },
+            docs: { connected: true, connectedAt: Date.now() },
+            calendar: { connected: true, connectedAt: Date.now() },
+          });
+        }
+      } catch { /* no valid token */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isOpen, gcpClientId]);
 
   if (!isOpen) {
     return null;
@@ -399,19 +427,72 @@ export function Integrations({ isOpen, onClose, gcpClientId }: IntegrationsProps
                 ) : null}
               </section>
 
-              {/* NotebookLM placeholder */}
-              <section className="rounded-xl border border-dashed border-gray-200 dark:border-gray-800 p-4 opacity-70">
-                <header className="flex items-center justify-between">
+              {/* NotebookLM — gated on settings toggle */}
+              {notebookLmEnabled !== false && (
+              <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+                <header className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <BookOpen size={18} className="text-gray-500" />
-                    <h3 className="font-semibold text-gray-700 dark:text-gray-300">NotebookLM</h3>
+                    <BookOpen size={18} className="text-amber-600" />
+                    <h3 className="font-semibold text-gray-900 dark:text-white">NotebookLM</h3>
                   </div>
-                  <span className="text-xs text-gray-500">(No public API yet)</span>
+                  <span className="text-xs text-gray-500">
+                    {connections.drive.connected ? 'Via Google Drive' : 'Requires Drive connection'}
+                  </span>
                 </header>
-                <p className="mt-2 text-xs text-gray-500">
-                  Export from NotebookLM to Drive and import via the Drive section above.
+                <p className="mb-3 text-xs text-gray-500">
+                  Upload an artifact to Drive, then open it as a source in NotebookLM.
                 </p>
+                {!connections.drive.connected ? (
+                  <p className="text-xs text-yellow-700 dark:text-yellow-300">Connect Google Drive first using the section above.</p>
+                ) : artifacts.length === 0 ? (
+                  <p className="text-xs text-gray-500">No artifacts yet. Chat with Gemini to generate content, then send it here.</p>
+                ) : (
+                  <ul className="max-h-48 overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+                    {artifacts.map((art) => (
+                      <li key={art.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                        <div className="flex-1 min-w-0">
+                          <span className="truncate text-gray-800 dark:text-gray-100 block">{art.title}</span>
+                          <span className="text-xs text-gray-500">{art.type} · {new Date(art.createdAt).toLocaleDateString()}</span>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            const clientId = requireClientId();
+                            if (!clientId) return;
+                            setBusy(`nlm:${art.id}`);
+                            try {
+                              const token = await getToken(clientId);
+                              if (!token) return;
+                              const blob = new Blob([art.content], { type: 'text/plain' });
+                              const result = await integrations.googleWorkspace.uploadFile(
+                                token,
+                                `${art.title}.txt`,
+                                'text/plain',
+                                blob,
+                                'GEMINI/NotebookLM'
+                              );
+                              if (!result.ok || !result.fileId) {
+                                showBanner({ kind: 'error', message: result.error ?? 'Upload failed' });
+                                return;
+                              }
+                              showBanner({ kind: 'success', message: `Uploaded "${art.title}" to Drive. Opening NotebookLM…` });
+                              window.open('https://notebooklm.google.com/', '_blank');
+                            } catch (error) {
+                              showBanner({ kind: 'error', message: `Upload failed: ${errorMessage(error)}` });
+                            } finally {
+                              setBusy(null);
+                            }
+                          }}
+                          disabled={busy !== null}
+                          className="shrink-0 rounded-lg bg-amber-600 px-3 py-1 text-xs text-white hover:bg-amber-700 disabled:opacity-50"
+                        >
+                          {busy === `nlm:${art.id}` ? 'Uploading…' : 'Send to NotebookLM'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
+              )}
 
               {/* Travel placeholder */}
               <section className="rounded-xl border border-dashed border-gray-200 dark:border-gray-800 p-4 opacity-70">

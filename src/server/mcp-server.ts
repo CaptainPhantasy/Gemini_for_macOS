@@ -10,6 +10,7 @@ import { promises as fs } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
+import os from 'os';
 
 const execAsync = promisify(exec);
 
@@ -52,6 +53,87 @@ class MCPServer {
     this.app.get('/mcp', (req, res) => {
       res.status(400).send('Use WebSocket');
     });
+
+    // CORS for frontend requests
+    this.app.use((req, res, next) => {
+      res.header('Access-Control-Allow-Origin', 'http://localhost:13000');
+      res.header('Access-Control-Allow-Methods', 'GET');
+      next();
+    });
+
+    // Detect locally-configured MCP servers from Gemini CLI and Claude Code configs
+    this.app.get('/detect-mcp', async (_req, res) => {
+      try {
+        const servers = await this.detectLocalMcpServers();
+        res.json({ servers });
+      } catch (error) {
+        res.status(500).json({ error: String(error) });
+      }
+    });
+  }
+
+  private async detectLocalMcpServers(): Promise<Array<{
+    name: string;
+    source: string;
+    type: 'stdio' | 'websocket' | 'sse';
+    command?: string;
+    args?: string[];
+    url?: string;
+    enabled: boolean;
+  }>> {
+    const home = os.homedir();
+    const discovered: Array<{
+      name: string;
+      source: string;
+      type: 'stdio' | 'websocket' | 'sse';
+      command?: string;
+      args?: string[];
+      url?: string;
+      enabled: boolean;
+    }> = [];
+
+    const configPaths = [
+      { file: path.join(home, '.gemini', 'settings.json'), source: 'Gemini CLI' },
+      { file: path.join(home, '.claude', 'settings.json'), source: 'Claude Code (global)' },
+      { file: path.join(home, '.claude', 'settings.local.json'), source: 'Claude Code (local)' },
+    ];
+
+    // Load enablement overrides from Gemini CLI
+    let enablement: Record<string, { enabled: boolean }> = {};
+    try {
+      const raw = await fs.readFile(path.join(home, '.gemini', 'mcp-server-enablement.json'), 'utf-8');
+      enablement = JSON.parse(raw);
+    } catch { /* no enablement file */ }
+
+    for (const { file, source } of configPaths) {
+      try {
+        const raw = await fs.readFile(file, 'utf-8');
+        const config = JSON.parse(raw);
+        const servers = config.mcpServers || {};
+
+        if (typeof servers !== 'object') continue;
+
+        for (const [name, cfg] of Object.entries(servers)) {
+          const c = cfg as Record<string, unknown>;
+          const type = c.command ? 'stdio' : (c.url ? 'websocket' : 'sse');
+          const enableKey = name.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+          const enabledOverride = enablement[enableKey] ?? enablement[name];
+          const enabled = enabledOverride !== undefined ? enabledOverride.enabled : true;
+
+          discovered.push({
+            name,
+            source,
+            type: type as 'stdio' | 'websocket' | 'sse',
+            command: c.command as string | undefined,
+            args: c.args as string[] | undefined,
+            url: c.url as string | undefined,
+            enabled,
+          });
+        }
+      } catch { /* file not found or invalid JSON */ }
+    }
+
+    return discovered;
   }
 
   public start(): void {

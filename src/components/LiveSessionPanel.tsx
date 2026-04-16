@@ -34,6 +34,7 @@ export interface LiveSessionPanelProps {
   systemInstruction?: string;
   captionsDefault?: boolean;
   voiceName?: string;
+  enableVideo?: boolean;
   /**
    * Optional sink for transcript persistence. Passed straight through to
    * `LiveSession.onSessionEnd`.
@@ -79,6 +80,7 @@ export function LiveSessionPanel({
   systemInstruction,
   captionsDefault,
   voiceName,
+  enableVideo = true,
   onSessionEnd,
 }: LiveSessionPanelProps) {
   const layout = LAYOUTS[mode];
@@ -92,6 +94,7 @@ export function LiveSessionPanel({
   const [transcript, setTranscript] = useState<string[]>([]);
   const [muted, setMuted] = useState(false);
   const [captionsOn, setCaptionsOn] = useState(captionsDefault ?? layout.defaultCaptions);
+  const videoEnabled = layout.showVideo && enableVideo;
 
   const media = useMediaStream(sessionRef, videoRef);
   const { setupAudio, startVideoSource, stopVideoSource, toggleCamera, streamRef, analyser } =
@@ -298,7 +301,7 @@ export function LiveSessionPanel({
         <div className="flex-1 bg-black relative flex items-center justify-center overflow-hidden">
           {/* ALWAYS render the video element when in a video mode so the
               ref is attached BEFORE useMediaStream tries to set srcObject. */}
-          {layout.showVideo && (
+          {videoEnabled && (
             <video
               ref={videoRef}
               autoPlay
@@ -308,7 +311,7 @@ export function LiveSessionPanel({
             />
           )}
 
-          {!layout.showVideo && (
+          {!videoEnabled && (
             <div className="text-gray-500 flex flex-col items-center gap-2">
               <Mic size={48} />
               <p className="text-sm">Listening...</p>

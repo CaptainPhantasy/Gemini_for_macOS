@@ -4,10 +4,26 @@ dist/
 coverage/
 .DS_Store
 *.log
-.env*
+
+# ─── Secrets & environment ───────────────────────────────
+# All .env variants are ignored. .env.example is the only tracked template.
+# Users copy .env.example → .env and fill in real values.
+.env
+.env.*
 !.env.example
 
-# DMA: local-only artifacts
+# Backup files may contain API keys from settings exports
+gemini-backup-*.json
+*-backup-*.json
+
+# OAuth PKCE verifier / token cache (on-disk if offline flow is used)
+.oauth-state.json
+oauth-tokens.json
+
+# Scheduler lock files (contain action IDs, not secrets, but are ephemeral)
+/tmp/gemini-for-macos-schedule-*.lock
+
+# ─── Local-only artifacts ────────────────────────────────
 docs/quarantine/
 docs/screenshots/
 .local-backup/
@@ -15,13 +31,24 @@ test-results.json
 test-report.txt
 test-results/
 
-# Ephemeral tool state and orchestration artifacts
+# ─── Ephemeral tool state & orchestration ────────────────
 .pi/
 .pi-lens/
 .sprint/
-# Claude Code / harness runtime state (ephemeral)
 .bg-shell/
 
-# agent memory directory — track README, ignore runtime session files
+# ─── Agent memory directory ──────────────────────────────
+# Track README, ignore runtime session files (summaries, task queues, night reports)
 .gemini-memory/*
 !.gemini-memory/README.md
+
+# ─── Provider API keys (future: stored per-provider in .env) ──
+# Together.ai, OpenRouter, HuggingFace, Ollama cloud keys all go in .env
+# which is already covered by the .env pattern above.
+
+# ─── IDE / editor artifacts ──────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

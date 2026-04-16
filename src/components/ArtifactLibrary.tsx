@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Artifact } from '../types';
 import { storage } from '../lib/storage';
-import { sharing } from '../lib/sharing';
-import { X, Code, FileText, Search, Link as LinkIcon, Trash2, Edit2, Check, Upload } from 'lucide-react';
+import { X, Code, FileText, Search, Trash2, Edit2, Check, Upload, HardDrive } from 'lucide-react';
+import { uploadArtifactToDrive } from '../lib/drive-sync';
 
 interface ArtifactLibraryProps {
   onClose: () => void;
@@ -18,11 +18,6 @@ export function ArtifactLibrary({ onClose, onOpenArtifact }: ArtifactLibraryProp
   useEffect(() => {
     setArtifacts(storage.getArtifacts());
   }, []);
-
-  const handleShare = (artifact: Artifact) => {
-    const url = sharing.generateArtifactLink(artifact);
-    alert(`Public Link Generated:\n${url}`);
-  };
 
   const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this artifact?')) {
@@ -45,7 +40,25 @@ export function ArtifactLibrary({ onClose, onOpenArtifact }: ArtifactLibraryProp
     setEditingId(null);
   };
 
-  const filteredArtifacts = artifacts.filter(a => 
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const content = await file.text();
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    const codeExts = ['js','jsx','ts','tsx','py','rs','go','html','css','sh','yaml','yml','toml','xml','sql','json'];
+    const artifact: Artifact = {
+      id: crypto.randomUUID(),
+      title: file.name,
+      content,
+      type: codeExts.includes(ext) ? 'code' : 'text',
+      createdAt: Date.now(),
+      mimeType: file.type || 'text/plain',
+    };
+    await storage.saveArtifact(artifact);
+    setArtifacts(storage.getArtifacts());
+  };
+
+  const filteredArtifacts = artifacts.filter(a =>
     a.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
     a.content.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -56,9 +69,15 @@ export function ArtifactLibrary({ onClose, onOpenArtifact }: ArtifactLibraryProp
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-4">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Artifact Library</h2>
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors">
+            <label className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors cursor-pointer">
               <Upload size={14} /> Import File
-            </button>
+              <input
+                type="file"
+                accept=".txt,.md,.json,.csv,.js,.jsx,.ts,.tsx,.py,.rs,.go,.html,.css,.sh,.yaml,.yml,.toml,.xml,.sql"
+                className="hidden"
+                onChange={handleImportFile}
+              />
+            </label>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
             <X size={24} />
@@ -112,8 +131,19 @@ export function ArtifactLibrary({ onClose, onOpenArtifact }: ArtifactLibraryProp
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                <button onClick={() => handleShare(artifact)} className="p-2 text-gray-500 hover:text-blue-600 dark:hover:text-blue-400" title="Share Artifact">
-                  <LinkIcon size={18} />
+                <button
+                  onClick={async () => {
+                    const result = await uploadArtifactToDrive(artifact);
+                    if (result.ok) {
+                      setArtifacts(storage.getArtifacts());
+                    } else {
+                      alert(`Drive upload failed: ${result.error}`);
+                    }
+                  }}
+                  className={`p-2 ${artifact.driveFileId ? 'text-green-500' : 'text-gray-500 hover:text-blue-600 dark:hover:text-blue-400'}`}
+                  title={artifact.driveFileId ? 'On Drive ✓' : 'Upload to Drive'}
+                >
+                  <HardDrive size={18} />
                 </button>
                 <button onClick={() => handleDelete(artifact.id)} className="p-2 text-gray-500 hover:text-red-600 dark:hover:text-red-400" title="Delete Artifact">
                   <Trash2 size={18} />

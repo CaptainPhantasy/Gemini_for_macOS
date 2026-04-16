@@ -19,7 +19,9 @@ export function parseAppSettingsJSON(data: unknown): AppSettings {
     mcpServers: [
       { id: 'default-ws', name: 'Default Local Server', type: 'websocket', url: 'ws://localhost:13001/mcp', enabled: true }
     ],
-    geminiApiKey: ''
+    geminiApiKey: '',
+    gcpOAuthClientId: '',
+    autoSyncArtifacts: false
   };
 
   if (!data || typeof data !== 'string') {
@@ -38,7 +40,9 @@ export function parseAppSettingsJSON(data: unknown): AppSettings {
       notebookLmEnabled: typeof parsed.notebookLmEnabled === 'boolean' ? parsed.notebookLmEnabled : defaults.notebookLmEnabled,
       searchEnabled: typeof parsed.searchEnabled === 'boolean' ? parsed.searchEnabled : defaults.searchEnabled,
       mcpServers: Array.isArray(parsed.mcpServers) ? parsed.mcpServers : defaults.mcpServers,
-      geminiApiKey: typeof parsed.geminiApiKey === 'string' ? parsed.geminiApiKey : defaults.geminiApiKey
+      geminiApiKey: typeof parsed.geminiApiKey === 'string' ? parsed.geminiApiKey : defaults.geminiApiKey,
+      gcpOAuthClientId: typeof parsed.gcpOAuthClientId === 'string' ? parsed.gcpOAuthClientId : defaults.gcpOAuthClientId,
+      autoSyncArtifacts: typeof parsed.autoSyncArtifacts === 'boolean' ? parsed.autoSyncArtifacts : defaults.autoSyncArtifacts
     };
   } catch (error) {
     console.error('Failed to parse app settings JSON:', error);

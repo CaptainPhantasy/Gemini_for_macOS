@@ -38,7 +38,9 @@ const defaultSettings: AppSettings = {
   mcpServers: [
     { id: 'default-ws', name: 'Default Local Server', type: 'websocket', url: 'ws://localhost:13001/mcp', enabled: true }
   ],
-  geminiApiKey: ''
+  geminiApiKey: '',
+  gcpOAuthClientId: '',
+  autoSyncArtifacts: false
 };
 
 const defaultPersonalIntelligence: PersonalIntelligence = {
@@ -154,6 +156,25 @@ export const storage = {
     }
     const db = await getDB();
     await db.put(STORE_THREADS, thread);
+  },
+
+  deleteThread: async (id: string): Promise<void> => {
+    memoryCache.threads = memoryCache.threads.filter((t: Thread) => t.id !== id);
+    const db = await getDB();
+    await db.delete(STORE_THREADS, id);
+  },
+
+  renameThread: async (id: string, title: string): Promise<void> => {
+    const index = memoryCache.threads.findIndex((t: Thread) => t.id === id);
+    if (index < 0) return;
+    const updated = { ...memoryCache.threads[index], title, updatedAt: Date.now() };
+    memoryCache.threads = [
+      ...memoryCache.threads.slice(0, index),
+      updated,
+      ...memoryCache.threads.slice(index + 1)
+    ];
+    const db = await getDB();
+    await db.put(STORE_THREADS, updated);
   },
 
   getGems: (): Gem[] => memoryCache.gems,

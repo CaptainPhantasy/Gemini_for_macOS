@@ -22,7 +22,9 @@ import {
   Undo,
   Redo,
   Image as ImageIcon,
+  HardDrive,
 } from 'lucide-react';
+import { uploadArtifactToDrive } from '../lib/drive-sync';
 import { storage } from '../lib/storage';
 import { multimodal } from '../lib/multimodal';
 import { getAI } from '../lib/api-config';
@@ -237,6 +239,11 @@ export function Canvas({ artifact, onClose, settings }: CanvasProps) {
         const response = await ai.models.generateContent({
           model: textModel,
           contents: prompt,
+          config: {
+            thinkingConfig: settings?.thinkingBudgets?.text
+              ? { thinkingBudget: settings.thinkingBudgets.text }
+              : undefined,
+          },
         });
 
         // Cost ledger: record token usage for every successful text action.
@@ -297,8 +304,22 @@ export function Canvas({ artifact, onClose, settings }: CanvasProps) {
           <div className="flex items-center gap-1 mr-2 border-r border-gray-200 dark:border-gray-700 pr-2">
             <button onClick={history.undo} disabled={!history.canUndo} className="p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md disabled:opacity-30" title="Undo (Cmd+Z)"><Undo size={16} /></button>
             <button onClick={history.redo} disabled={!history.canRedo} className="p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md disabled:opacity-30" title="Redo (Cmd+Shift+Z)"><Redo size={16} /></button>
-            <button onClick={() => exportArtifact(artifact, 'txt')} className="p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md" title="Export"><Download size={16} /></button>
+            <button onClick={() => exportArtifact(artifact)} className="p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md" title="Export"><Download size={16} /></button>
             <button onClick={() => clipboard.copyAsMarkdown(content, artifact?.title || 'artifact')} className="p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md" title="Copy"><Copy size={16} /></button>
+            <button
+              onClick={async () => {
+                const result = await uploadArtifactToDrive(artifact);
+                if (result.ok) {
+                  alert(`Uploaded to Drive ✓`);
+                } else {
+                  alert(`Drive upload failed: ${result.error}`);
+                }
+              }}
+              className={`p-1.5 rounded-md ${artifact.driveFileId ? 'text-green-500' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+              title={artifact.driveFileId ? 'Already on Drive' : 'Upload to Drive'}
+            >
+              <HardDrive size={16} />
+            </button>
           </div>
           <div className="relative">
             <button
