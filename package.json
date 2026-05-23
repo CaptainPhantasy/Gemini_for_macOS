@@ -1,7 +1,7 @@
 {
   "name": "gemini-for-macos",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.5.0",
   "description": "GEMINI desktop workspace with MCP capabilities, multimodal AI, and local-first architecture",
   "license": "MIT",
   "type": "module",
