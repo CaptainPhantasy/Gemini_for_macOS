@@ -7,6 +7,7 @@ import { X, Save, Play, Trash2, Copy, Info } from 'lucide-react';
 
 interface ScheduledActionsProps {
   onClose: () => void;
+  onRunPrompt: (prompt: string) => Promise<void> | void;
 }
 
 // TODO: Make this a user setting for portability. Hardcoded for now since this
@@ -17,7 +18,7 @@ type PlanEntry =
   | { kind: 'install'; plan: InstallPlan }
   | { kind: 'uninstall'; plan: UninstallPlan };
 
-export function ScheduledActions({ onClose }: ScheduledActionsProps) {
+export function ScheduledActions({ onClose, onRunPrompt }: ScheduledActionsProps) {
   const [actions, setActions] = useState<ScheduledAction[]>([]);
   const [cron, setCron] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -59,8 +60,14 @@ export function ScheduledActions({ onClose }: ScheduledActionsProps) {
     setPlans(prev => ({ ...prev, [action.id]: { kind: 'uninstall', plan } }));
   };
 
-  const handleRunNow = () => {
-    setRunNowMessage('Run Now requires the scheduler script installed. See Install Commands below.');
+  const handleRunNow = async (action: ScheduledAction) => {
+    try {
+      await onRunPrompt(action.prompt);
+      setRunNowMessage('Queued scheduled action in chat.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRunNowMessage(`Run Now failed: ${message}`);
+    }
     window.setTimeout(() => setRunNowMessage(null), 5000);
   };
 
@@ -106,7 +113,7 @@ export function ScheduledActions({ onClose }: ScheduledActionsProps) {
                       {action.enabled ? 'Active' : 'Paused'}
                     </span>
                     <button
-                      onClick={handleRunNow}
+                      onClick={() => { void handleRunNow(action); }}
                       title="Run Now"
                       className="p-1.5 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
                     >

@@ -4,10 +4,12 @@ interface SplashScreenProps {
   onComplete: () => void;
 }
 
+
 export function SplashScreen({ onComplete }: SplashScreenProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState(false);
 
+  const assetBase = import.meta.env.BASE_URL;
   useEffect(() => {
     const timer = setTimeout(() => {
       // Failsafe in case video fails to load or ends without firing event
@@ -21,7 +23,7 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
     <div className="fixed inset-0 bg-black flex items-center justify-center z-[9999]">
       {error ? (
         <div className="text-white text-center">
-          <img src="/logo.png" alt="Gemini Logo" className="w-32 h-32 mx-auto mb-4 animate-pulse" />
+          <img src={`${assetBase}logo.png`} alt="Gemini Logo" className="w-32 h-32 mx-auto mb-4 animate-pulse" />
           <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
             Loading Gemini...
           </h1>
@@ -38,8 +40,8 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
           onError={() => setError(true)}
           className="w-full h-full object-cover"
         >
-          <source src="/splash.mp4" type="video/mp4" />
-          <source src="/splash.mov" type="video/quicktime" />
+          <source src={`${assetBase}splash.mp4`} type="video/mp4" />
+          <source src={`${assetBase}splash.mov`} type="video/quicktime" />
           Your browser does not support the video tag.
         </video>
       )}

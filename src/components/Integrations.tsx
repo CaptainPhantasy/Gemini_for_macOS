@@ -36,6 +36,35 @@ interface BannerState {
 
 const REDIRECT_URI = 'http://localhost:13000/oauth/callback';
 
+const LS_CONNECTIONS_KEY = 'gemini-for-macos:integrations:connections';
+
+function loadConnectionsFromStorage(): Record<ServiceKey, ConnectionState> {
+    try {
+        const raw = localStorage.getItem(LS_CONNECTIONS_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (typeof parsed === 'object' && parsed !== null) {
+                return parsed as Record<ServiceKey, ConnectionState>;
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load connection state from localStorage:', e);
+    }
+    return {
+        drive: { connected: false },
+        docs: { connected: false },
+        calendar: { connected: false },
+    };
+}
+
+function saveConnectionsToStorage(connections: Record<ServiceKey, ConnectionState>): void {
+    try {
+        localStorage.setItem(LS_CONNECTIONS_KEY, JSON.stringify(connections));
+    } catch (e) {
+        console.warn('Failed to save connection state to localStorage:', e);
+    }
+}
+
 function generateArtifactId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -57,11 +86,9 @@ function errorMessage(error: unknown): string {
 }
 
 export function Integrations({ isOpen, onClose, gcpClientId, notebookLmEnabled }: IntegrationsProps): ReactElement | null {
-  const [connections, setConnections] = useState<Record<ServiceKey, ConnectionState>>({
-    drive: { connected: false },
-    docs: { connected: false },
-    calendar: { connected: false },
-  });
+  const [connections, setConnections] = useState<Record<ServiceKey, ConnectionState>>(
+      loadConnectionsFromStorage()
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [banner, setBanner] = useState<BannerState | null>(null);
   const [driveFiles, setDriveFiles] = useState<DriveFileSummary[] | null>(null);
@@ -93,6 +120,11 @@ export function Integrations({ isOpen, onClose, gcpClientId, notebookLmEnabled }
     })();
     return () => { cancelled = true; };
   }, [isOpen, gcpClientId]);
+
+  // Persist connection state to localStorage whenever it changes
+  useEffect(() => {
+      saveConnectionsToStorage(connections);
+  }, [connections]);
 
   if (!isOpen) {
     return null;
@@ -129,7 +161,13 @@ export function Integrations({ isOpen, onClose, gcpClientId, notebookLmEnabled }
     setBusy(`connect:${key}`);
     try {
       await oauthHandler.initiateOAuth(buildOAuthConfig(clientId));
-      markConnected(key);
+      // All three services (Drive, Docs, Calendar) share the same Google OAuth token,
+      // so connecting any one marks all three as connected.
+      setConnections({
+        drive: { connected: true, connectedAt: Date.now() },
+        docs: { connected: true, connectedAt: Date.now() },
+        calendar: { connected: true, connectedAt: Date.now() },
+      });
       showBanner({ kind: 'success', message: 'Connected to Google.' });
     } catch (error) {
       showBanner({ kind: 'error', message: `Connect failed: ${errorMessage(error)}` });

@@ -52,3 +52,36 @@ test-results/
 *.swp
 *.swo
 *~
+
+# ── GSD baseline (auto-generated) ──
+.gsd-id
+Thumbs.db
+*.code-workspace
+.next/
+__pycache__/
+*.pyc
+.venv/
+venv/
+target/
+vendor/
+.cache/
+tmp/
+
+# ─── MCP config with live tokens (NEVER commit) ───────────
+.mcp.json
+
+# ─── Agent/orchestration state (local-only) ──────────────
+.floyd/
+.gsd/STATE.md
+.gsd/gsd.db
+.gsd/auto.lock
+
+# ─── Test/debug scripts (local-only) ─────────────────────
+test-oauth-persistence.mjs
+OAUTH_TEST_PROCEDURE.md
+public/storage-debug.html
+
+# ─── Verification docs (local-only, not shipped) ──────────
+ROADMAP_VERIFICATION_TESTS.md
+Issues/
+SSOT/

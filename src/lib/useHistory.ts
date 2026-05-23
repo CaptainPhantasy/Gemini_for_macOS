@@ -1,9 +1,10 @@
 import { useState, useCallback } from 'react';
-export function useHistory(initialValue) {
-  const [history, setHistory] = useState([initialValue]);
+
+export function useHistory<T>(initialValue: T) {
+  const [history, setHistory] = useState<T[]>([initialValue]);
   const [index, setIndex] = useState(0);
 
-  const push = useCallback((val) => {
+  const push = useCallback((val: T) => {
     if (val === history[index]) return;
     const next = history.slice(0, index + 1);
     next.push(val);

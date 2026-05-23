@@ -194,37 +194,69 @@ async function decryptTokenSet(key: CryptoKey, blob: EncryptedBlob): Promise<Tok
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
+// Timeout constant for IndexedDB operations (5 seconds)
+const IDB_TIMEOUT_MS = 5000;
+
+// Utility to wrap a promise with a timeout
+function withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    message: string
+): Promise<T> {
+    return Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+            setTimeout(() => reject(new Error(message)), timeoutMs)
+        ),
+    ]);
+}
+
 function getDb(): Promise<IDBPDatabase> {
-  if (!dbPromise) {
-    dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME);
-        }
-      },
-    });
-  }
-  return dbPromise;
+    if (!dbPromise) {
+        dbPromise = withTimeout(
+            openDB(DB_NAME, DB_VERSION, {
+                upgrade(db) {
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME);
+                    }
+                },
+            }),
+            IDB_TIMEOUT_MS,
+            `IndexedDB did not respond within ${IDB_TIMEOUT_MS}ms; IndexedDB may be blocked by browser policy`
+        );
+    }
+    return dbPromise;
 }
 
 async function persistTokenSet(tokens: TokenSet): Promise<void> {
-  const key = await getOrCreateEncryptionKey();
-  if (key) {
-    const blob = await encryptTokenSet(key, tokens);
-    const db = await getDb();
-    await db.put(STORE_NAME, blob, TOKEN_KEY);
-    // Clean up any stale plaintext fallback.
-    try {
-      localStorage.removeItem(LS_KEY_PLAINTEXT_FALLBACK);
-    } catch {
-      /* ignore */
+    const key = await getOrCreateEncryptionKey();
+    if (key) {
+        try {
+            const blob = await encryptTokenSet(key, tokens);
+            const db = await getDb();
+            await db.put(STORE_NAME, blob, TOKEN_KEY);
+            // Clean up any stale plaintext fallback.
+            try {
+                localStorage.removeItem(LS_KEY_PLAINTEXT_FALLBACK);
+            } catch {
+                /* ignore */
+            }
+            return;
+        } catch (error) {
+            // IndexedDB failed (blocked by browser, quota exceeded, etc.)
+            console.warn('[OAuth] IndexedDB write failed, falling back to plaintext storage', error);
+            // Fall through to plaintext fallback below
+        }
     }
-    return;
-  }
 
-  // TODO: encrypt — Web Crypto unavailable, falling back to plaintext storage.
-  console.warn('OAuth: storing tokens as plaintext because Web Crypto is unavailable');
-  localStorage.setItem(LS_KEY_PLAINTEXT_FALLBACK, JSON.stringify(tokens));
+    // Web Crypto unavailable OR IndexedDB write failed — use plaintext storage.
+    console.warn('[OAuth] storing tokens as plaintext (Web Crypto unavailable or IndexedDB blocked)');
+    try {
+        localStorage.setItem(LS_KEY_PLAINTEXT_FALLBACK, JSON.stringify(tokens));
+    } catch (error) {
+        console.error('[OAuth] localStorage token write failed', error);
+        throw new Error(`OAuth token persistence failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 async function loadTokenSet(): Promise<TokenSet | null> {
@@ -304,6 +336,11 @@ function tokenResponseToSet(
   response: GoogleTokenResponse,
   previousRefreshToken?: string,
 ): TokenSet {
+  // Validate that we got a real access token from Google
+  if (!response.access_token) {
+    console.error('[OAuth] Google token response missing access_token:', response);
+    throw new Error('Google OAuth failed: no access token in response');
+  }
   const refreshToken = response.refresh_token ?? previousRefreshToken ?? '';
   return {
     accessToken: response.access_token,
@@ -326,8 +363,7 @@ async function exchangeCodeForTokens(
     redirect_uri: config.redirectUri,
   });
   const response = await postTokenEndpoint(body);
-  return tokenResponseToSet(response);
-}
+  return tokenResponseToSet(response);}
 
 async function refreshAccessToken(tokens: TokenSet, config: OAuthConfig): Promise<TokenSet> {
   if (!tokens.refreshToken) {
@@ -443,20 +479,31 @@ async function initiateOAuth(config: OAuthConfig): Promise<TokenSet> {
         return;
       }
 
-      try {
-        const tokens = await exchangeCodeForTokens(data.code, verifier, config);
-        await persistTokenSet(tokens);
-        cleanup();
-        try {
-          popup.close();
-        } catch {
-          /* ignore cross-origin close failures */
-        }
-        resolve(tokens);
-      } catch (error) {
-        cleanup();
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
+    try {
+     console.log("[OAuth] Starting token exchange for code of length:", data.code.length);
+     const tokens = await exchangeCodeForTokens(data.code, verifier, config);
+     console.log("[OAuth] Token exchange complete. Got tokens:", {
+      hasAccessToken: !!tokens.accessToken,
+      hasRefreshToken: !!tokens.refreshToken,
+      expiresAt: tokens.expiresAt,
+      accessTokenLength: tokens.accessToken?.length,
+     });
+     console.log("[OAuth] About to call persistTokenSet...");
+     await persistTokenSet(tokens);
+     console.log("[OAuth] persistTokenSet completed successfully");
+     cleanup();
+     try {
+      popup.close();
+     } catch {
+      // ignore cross-origin close failures
+     }
+     console.log("[OAuth] Resolving promise with tokens");
+     resolve(tokens);
+    } catch (error) {
+     console.error("[OAuth] Flow failed with error:", error);
+     cleanup();
+     reject(error instanceof Error ? error : new Error(String(error)));
+    }
     };
   });
 }

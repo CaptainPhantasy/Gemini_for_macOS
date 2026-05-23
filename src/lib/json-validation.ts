@@ -4,6 +4,7 @@
  */
 
 import { Thread, Gem, ScheduledAction, Artifact, PersonalIntelligence, AppSettings } from '../types';
+import { normalizeAutonomyMode } from './autonomy';
 
 /**
  * Safely parse and validate application settings JSON
@@ -12,16 +13,15 @@ export function parseAppSettingsJSON(data: unknown): AppSettings {
   const defaults: AppSettings = {
     theme: 'system',
     autonomyMode: 'yolo',
-    scopedPaths: ['/src', '/docs'],
-    googleDriveEnabled: false,
-    notebookLmEnabled: false,
+    googleDriveEnabled: true,
+    notebookLmEnabled: true,
     searchEnabled: true,
     mcpServers: [
       { id: 'default-ws', name: 'Default Local Server', type: 'websocket', url: 'ws://localhost:13001/mcp', enabled: true }
     ],
     geminiApiKey: '',
     gcpOAuthClientId: '',
-    autoSyncArtifacts: false
+    autoSyncArtifacts: true
   };
 
   if (!data || typeof data !== 'string') {
@@ -34,8 +34,7 @@ export function parseAppSettingsJSON(data: unknown): AppSettings {
 
     return {
       theme: (['light', 'dark', 'system', 'gemini'].includes(parsed.theme) ? parsed.theme : defaults.theme) as AppSettings['theme'],
-      autonomyMode: (['locked', 'scoped', 'risk-based', 'yolo'].includes(parsed.autonomyMode) ? parsed.autonomyMode : defaults.autonomyMode) as AppSettings['autonomyMode'],
-      scopedPaths: Array.isArray(parsed.scopedPaths) ? parsed.scopedPaths : defaults.scopedPaths,
+      autonomyMode: normalizeAutonomyMode(parsed.autonomyMode),
       googleDriveEnabled: typeof parsed.googleDriveEnabled === 'boolean' ? parsed.googleDriveEnabled : defaults.googleDriveEnabled,
       notebookLmEnabled: typeof parsed.notebookLmEnabled === 'boolean' ? parsed.notebookLmEnabled : defaults.notebookLmEnabled,
       searchEnabled: typeof parsed.searchEnabled === 'boolean' ? parsed.searchEnabled : defaults.searchEnabled,

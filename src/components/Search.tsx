@@ -1,15 +1,25 @@
 import { useState, useMemo } from 'react';
 import { Search as SearchIcon, X, MessageSquare, FileText } from 'lucide-react';
 import { storage } from '../lib/storage';
+import type { Artifact } from '../types';
 
-export function Search({ onClose, onOpenThread, onOpenArtifact }) {
+interface SearchProps {
+  onClose: () => void;
+  onOpenThread: (id: string) => void;
+  onOpenArtifact: (artifact: Artifact) => void;
+}
+
+type ThreadSearchResult = { kind: 'thread'; id: string; title: string };
+type ArtifactSearchResult = { kind: 'artifact'; artifact: Artifact; title: string };
+
+export function Search({ onClose, onOpenThread, onOpenArtifact }: SearchProps) {
   const [query, setQuery] = useState('');
   const results = useMemo(() => {
     if (query.length < 2) return [];
     const threads = storage.getThreads().filter(t => t.title.toLowerCase().includes(query.toLowerCase()));
     const artifacts = storage.getArtifacts().filter(a => (a.title || '').toLowerCase().includes(query.toLowerCase()) || (a.content || '').toLowerCase().includes(query.toLowerCase()));
-    const threadResults = (threads || []).map(t => ({...t, type: 'thread'}));
-    const artifactResults = (artifacts || []).map(a => ({...a, type: 'artifact'}));
+    const threadResults: ThreadSearchResult[] = threads.map(t => ({ kind: 'thread' as const, id: t.id, title: t.title }));
+    const artifactResults: ArtifactSearchResult[] = artifacts.map(a => ({ kind: 'artifact' as const, artifact: a, title: a.title }));
     return [...threadResults, ...artifactResults];
   }, [query]);
 
@@ -23,8 +33,8 @@ export function Search({ onClose, onOpenThread, onOpenArtifact }) {
         </div>
         <div className="max-h-[400px] overflow-y-auto p-2">
           {results.map((r, i) => (
-            <button key={i} onClick={() => { if (r.type === 'thread') onOpenThread(r.id); else onOpenArtifact(r); onClose(); }} className="w-full text-left p-3 rounded-xl hover:bg-gray-100 dark:hover:bg-[#2a2b2c] flex items-center gap-3 transition-colors text-gray-800 dark:text-gray-100">
-              {r.type === 'thread' ? <MessageSquare size={16} /> : <FileText size={16} />}
+            <button key={i} onClick={() => { if (r.kind === 'thread') onOpenThread(r.id); else onOpenArtifact(r.artifact); onClose(); }} className="w-full text-left p-3 rounded-xl hover:bg-gray-100 dark:hover:bg-[#2a2b2c] flex items-center gap-3 transition-colors text-gray-800 dark:text-gray-100">
+              {r.kind === 'thread' ? <MessageSquare size={16} /> : <FileText size={16} />}
               <span className="font-medium">{r.title}</span>
             </button>
           ))}

@@ -3,7 +3,7 @@ import { useHistory } from '../lib/useHistory';
 import { useKeyboardShortcuts } from '../lib/useKeyboardShortcuts';
 import { exportArtifact } from '../lib/export';
 import { clipboard } from '../lib/clipboard';
-import { Artifact, AppSettings } from '../types';
+import { Artifact, AppSettings, GenerationProgressEvent, StreamChunkEvent } from '../types';
 import {
   X,
   Code,
@@ -35,6 +35,8 @@ interface CanvasProps {
   artifact: Artifact | null;
   onClose: () => void;
   settings?: AppSettings;
+  drawerOpen: boolean;
+  onDrawerOpenChange: (open: boolean) => void;
 }
 
 type MediaArtifactType = 'audio' | 'video' | 'image';
@@ -55,7 +57,7 @@ function stripFencedPreamble(raw: string): string {
   return raw;
 }
 
-export function Canvas({ artifact, onClose, settings }: CanvasProps) {
+export function Canvas({ artifact, onClose, settings, drawerOpen, onDrawerOpenChange }: CanvasProps) {
   const history = useHistory(artifact?.content || '');
   const content = history.value;
   const setContent = history.push;
@@ -68,6 +70,7 @@ export function Canvas({ artifact, onClose, settings }: CanvasProps) {
   const [mediaType, setMediaType] = useState<MediaArtifactType | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const objectUrlRef = useRef<string | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<string | null>(null);
 
   useEffect(() => {
     if (artifact) {
@@ -91,9 +94,11 @@ export function Canvas({ artifact, onClose, settings }: CanvasProps) {
     };
   }, []);
 
-  if (!artifact) return null;
+
 
   const handleSave = async () => {
+    if (!artifact) return;
+
     setIsSaving(true);
     const updatedArtifact = { ...artifact, content };
     await storage.saveArtifact(updatedArtifact);
@@ -107,6 +112,42 @@ export function Canvas({ artifact, onClose, settings }: CanvasProps) {
     'cmd+shift+z': history.redo,
     'cmd+s': handleSave,
   });
+
+  if (!artifact) {
+    return (
+      <aside
+        aria-label="Artifact canvas"
+        className="relative h-dvh max-h-dvh min-h-0 w-full shrink-0 overflow-hidden border-l border-gray-200 bg-white shadow-xl transition-[width] duration-300 ease-in-out dark:border-gray-800 dark:bg-[#1e1f20] z-10"
+        style={{ width: '100%' }}
+        onMouseEnter={() => onDrawerOpenChange(true)}
+        onMouseLeave={() => onDrawerOpenChange(false)}
+        onFocusCapture={() => onDrawerOpenChange(true)}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            onDrawerOpenChange(false);
+          }
+        }}
+      >
+        <div className={`pointer-events-none absolute inset-y-0 right-0 flex w-14 flex-col items-center justify-center gap-3 text-gray-500 transition-opacity duration-150 ease-in-out dark:text-gray-400 ${drawerOpen ? 'opacity-0' : 'opacity-100'}`}>
+          <FileText size={18} />
+          <span className="select-none text-xs font-semibold uppercase tracking-widest [writing-mode:vertical-rl]">
+            Canvas
+          </span>
+        </div>
+        <div className={`flex h-full min-h-0 w-full min-w-0 flex-col transition-opacity duration-150 ease-in-out ${drawerOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
+          <div className="flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-800">
+            <div className="flex items-center gap-2 text-gray-800 dark:text-gray-200">
+              <FileText size={20} />
+              <h2 className="font-medium">Canvas</h2>
+            </div>
+          </div>
+          <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-gray-500 dark:text-gray-400">
+            Open an artifact from chat or the artifact session tree to edit it here.
+          </div>
+        </div>
+      </aside>
+    );
+  }
 
   /**
    * Persist a freshly-generated media payload (data URI) to the IndexedDB
@@ -155,6 +196,7 @@ export function Canvas({ artifact, onClose, settings }: CanvasProps) {
   const handleAiAction = async (action: string) => {
     setShowAiMenu(false);
     setIsProcessing(true);
+      setGenerationProgress(null);
     try {
       const models = settings?.models;
 
@@ -174,7 +216,9 @@ export function Canvas({ artifact, onClose, settings }: CanvasProps) {
         }
       } else if (action === 'song') {
         const prompt = `Create a song about: ${content.substring(0, 200)}`;
-        const song = await multimodal.generateMusic(prompt, models);
+        const song = await multimodal.generateMusic(prompt, models, (chunk: StreamChunkEvent) => {
+          setGenerationProgress(`Generating music… ${chunk.bytesReceived} bytes received`);
+        });
         if (song) {
           await persistMediaArtifact({
             dataUri: song,
@@ -186,7 +230,9 @@ export function Canvas({ artifact, onClose, settings }: CanvasProps) {
         }
       } else if (action === 'video') {
         const prompt = `A visual representation of: ${content.substring(0, 100)}`;
-        const video = await multimodal.generateVideo(prompt, models);
+        const video = await multimodal.generateVideo(prompt, models, (progress: GenerationProgressEvent) => {
+          setGenerationProgress(`${progress.status} ${progress.percent}%`);
+        });
         if (video) {
           // Veo can return either a data URI, a blob: URL, or an https URL.
           // Only persist via the blob store when we have a data URI we can decode.
@@ -284,12 +330,32 @@ export function Canvas({ artifact, onClose, settings }: CanvasProps) {
       alert(`Failed to perform AI action: ${e}`);
     } finally {
       setIsProcessing(false);
+      setGenerationProgress(null);
     }
   };
 
   return (
-    <div className="w-1/2 h-full bg-white dark:bg-[#1e1f20] border-l border-gray-200 dark:border-gray-800 flex flex-col shadow-xl z-10">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
+    <aside
+      aria-label="Artifact canvas"
+      className="relative h-dvh max-h-dvh min-h-0 w-full shrink-0 overflow-hidden border-l border-gray-200 bg-white shadow-xl transition-[width] duration-300 ease-in-out dark:border-gray-800 dark:bg-[#1e1f20] z-10"
+      style={{ width: '100%' }}
+      onMouseEnter={() => onDrawerOpenChange(true)}
+      onMouseLeave={() => onDrawerOpenChange(false)}
+      onFocusCapture={() => onDrawerOpenChange(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          onDrawerOpenChange(false);
+        }
+      }}
+    >
+      <div className={`pointer-events-none absolute inset-y-0 right-0 flex w-14 flex-col items-center justify-center gap-3 text-gray-500 transition-opacity duration-150 ease-in-out dark:text-gray-400 ${drawerOpen ? 'opacity-0' : 'opacity-100'}`}>
+        <FileText size={18} />
+        <span className="select-none text-xs font-semibold uppercase tracking-widest [writing-mode:vertical-rl]">
+          Artifact
+        </span>
+      </div>
+      <div className={`flex h-full min-h-0 w-full min-w-0 flex-col transition-opacity duration-150 ease-in-out ${drawerOpen ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
         <div className="flex items-center gap-2 text-gray-800 dark:text-gray-200">
           {artifact.type === 'code' && <Code size={20} />}
           {artifact.type === 'text' && <FileText size={20} />}
@@ -413,16 +479,38 @@ export function Canvas({ artifact, onClose, settings }: CanvasProps) {
           <div className="absolute inset-0 bg-white/50 dark:bg-black/50 flex items-center justify-center z-10">
             <div className="bg-white dark:bg-[#2a2b2c] p-4 rounded-lg shadow-lg flex items-center gap-3">
               <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">AI is processing...</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-white">AI is processing...{"{"}</span>
+              {generationProgress && (
+                <span className="text-xs text-gray-500 dark:text-gray-400">{generationProgress}</span>
+              )}
             </div>
           </div>
         )}
+        {/* ── Sandboxed HTML Preview ──────────────────────────────────────
+         * Architecture Roadmap §2c: Context-Isolated Rendering for Code Artifacts.
+         * HTML artifacts are rendered in a sandboxed iframe with strict security
+         * attributes (sandbox="allow-scripts allow-same-origin" + no allow-modals
+         * allow-forms allow-popups). This prevents scripts from accessing the global
+         * runtime window or communicating with the local MCPClient network layer.
+         */}
+        {artifact?.type === 'html' && (
+          <iframe
+            srcDoc={content}
+            sandbox="allow-scripts"
+            title="Sandboxed HTML Preview"
+            className="w-full h-full border-0 bg-white"
+            style={{ minHeight: '300px' }}
+          />
+        )}
+        {artifact?.type !== 'html' && (
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
           className="w-full h-full p-4 bg-gray-50 dark:bg-[#131314] text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-800 rounded-lg font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
+        )}
       </div>
-    </div>
+      </div>
+    </aside>
   );
 }

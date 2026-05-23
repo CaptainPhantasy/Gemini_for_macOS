@@ -42,17 +42,26 @@
 
   try {
     var bc = new BroadcastChannel('gemini-oauth');
-    bc.postMessage({ type: 'oauth-callback', code: code, state: state || '' });
+    bc.postMessage({ code: code, state: state || '' });
     bc.close();
     sp.style.display = 'none';
     el.className = 'ok';
     el.textContent = 'Signed in! This window will close shortly.';
-    setTimeout(function () { window.close(); }, 1500);
-  } catch (e) {
+    setTimeout(function () { window.close(); }, 1500);  } catch (e) {
     sp.style.display = 'none';
     el.className = 'err';
     el.textContent = 'Failed to relay auth code: ' + e.message;
   }
+
+  // Fallback: if this page ended up in the main window (popup blocked or
+  // redirect mishap), redirect back to the app after a short delay so the
+  // user isn't stranded on the callback page.
+  setTimeout(function () {
+    // Only redirect if the window is still open (close() failed).
+    if (!window.closed) {
+      window.location.href = '/';
+    }
+  }, 3000);
 })();
 </script>
 </body>

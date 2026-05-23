@@ -1,11 +1,21 @@
 import { useState, createContext, useContext } from 'react';
 import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
 
-const ToastContext = createContext(null);
+interface Toast {
+  id: number;
+  message: string;
+  type: 'info' | 'success' | 'error';
+}
 
-export function ToastProvider({ children }) {
-  const [toasts, setToasts] = useState([]);
-  const addToast = (message, type = 'info') => {
+interface ToastContextValue {
+  addToast: (message: string, type?: 'info' | 'success' | 'error') => void;
+}
+
+const ToastContext = createContext<ToastContextValue | null>(null);
+
+export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const addToast = (message: string, type: 'info' | 'success' | 'error' = 'info') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, 5000);

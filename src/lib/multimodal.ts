@@ -1,8 +1,9 @@
 import { Modality } from '@google/genai';
 import { getAI, getApiKey } from './api-config';
-import { costLedger } from './cost-ledger';
+import { costLedger, PRICING } from './cost-ledger';
 import { DEFAULT_MODEL_IDS } from './model-catalog';
 import { logger } from './logger';
+import type { StreamChunkEvent, GenerationProgressEvent, BudgetConfig } from '../types';
 
 export type MultimodalModelOverrides = {
   imagePro?: string;
@@ -35,6 +36,46 @@ async function recordCost(params: {
   } catch (err) {
     logger.warn('[multimodal] costLedger.record failed', err);
   }
+}
+
+/**
+ * Estimate USD cost from token counts using the pricing table.
+ * Returns 0 if the model is unknown or tokens are zero.
+ */
+function estimateCostUsd(
+  model: string,
+  usage: UsageMetadataLike,
+): number {
+  const pricing = PRICING[model];
+  if (!pricing) return 0;
+  const inputCost = (usage.promptTokenCount ?? 0) / 1_000_000 * pricing.inputPerMillion;
+  const outputCost = (usage.candidatesTokenCount ?? 0) / 1_000_000 * pricing.outputPerMillion;
+  const thinkCost = (usage.thoughtsTokenCount ?? 0) / 1_000_000 * (pricing.thinkingPerMillion ?? pricing.outputPerMillion);
+  return inputCost + outputCost + thinkCost;
+}
+
+/**
+ * Check in-flight budget thresholds against cumulative usage.
+ * Returns an error message if a threshold is exceeded, or null if within budget.
+ */
+function checkBudget(
+  usage: UsageMetadataLike,
+  model: string,
+  budget: BudgetConfig,
+): string | null {
+  if (budget.maxThinkingTokens > 0 && (usage.thoughtsTokenCount ?? 0) > budget.maxThinkingTokens) {
+    return `Thinking token budget exceeded: ${usage.thoughtsTokenCount} > ${budget.maxThinkingTokens}`;
+  }
+  if (budget.maxOutputTokens > 0 && (usage.candidatesTokenCount ?? 0) > budget.maxOutputTokens) {
+    return `Output token budget exceeded: ${usage.candidatesTokenCount} > ${budget.maxOutputTokens}`;
+  }
+  if (budget.maxCostUsdPerRequest > 0) {
+    const cost = estimateCostUsd(model, usage);
+    if (cost > budget.maxCostUsdPerRequest) {
+      return `Cost budget exceeded: $${cost.toFixed(4)} > $${budget.maxCostUsdPerRequest}`;
+    }
+  }
+  return null;
 }
 
 export const multimodal = {
@@ -75,12 +116,19 @@ export const multimodal = {
   },
 
   // Video Generation (Veo)
+  // Emits progress events during polling so the UI can show completion
+  // percentages in real time instead of appearing frozen.
   generateVideo: async (
     prompt: string,
-    models?: MultimodalModelOverrides
+    models?: MultimodalModelOverrides,
+    onProgress?: (event: GenerationProgressEvent) => void,
+    budget?: BudgetConfig,
   ): Promise<string | null> => {
     const ai = await getAI();
     const model = models?.video ?? DEFAULT_MODEL_IDS.video;
+
+    onProgress?.({ status: 'submitting', percent: 0 });
+
     const operation = await ai.models.generateVideos({
       model,
       prompt,
@@ -91,10 +139,25 @@ export const multimodal = {
       },
     });
 
-    // Real polling implementation
+    // Poll with progress updates. Veo operations typically take 30–120s.
+    // We emit progress events so the UI can display a completion percentage
+    // instead of appearing frozen during prolonged generation.
     let currentOperation = operation;
+    let pollCount = 0;
     while (!currentOperation.done) {
-      await new Promise((resolve) => setTimeout(resolve, 5000)); // Poll every 5 seconds
+      pollCount++;
+      // Heuristic: Veo typically completes in 6–20 polls. Cap at 40 to
+      // prevent infinite loops if the API never resolves.
+      if (pollCount > 40) {
+        logger.error('[multimodal] Video generation timed out after 40 polls');
+        return null;
+      }
+      // Estimate progress: assume ~5% per poll after the first, capping at 95%
+      // until done. The exact progress is opaque; this gives the user feedback.
+      const estimatedPercent = Math.min(5 + pollCount * 5, 95);
+      onProgress?.({ status: 'processing', percent: estimatedPercent });
+
+      await new Promise((resolve) => setTimeout(resolve, 5000));
       currentOperation = await ai.operations.getVideosOperation({
         operation: currentOperation,
       });
@@ -105,11 +168,23 @@ export const multimodal = {
       return null;
     }
 
+    // Check budget against final usage metadata before downloading
+    const finalUsage = (currentOperation.response as any)?.usageMetadata as UsageMetadataLike | undefined;
+    if (finalUsage && budget) {
+      const budgetError = checkBudget(finalUsage, model, budget);
+      if (budgetError) {
+        logger.warn(`[multimodal] Video generation budget exceeded: ${budgetError}`);
+        return null;
+      }
+    }
+
     await recordCost({
       model,
       capability: 'video',
-      usageMetadata: (currentOperation.response as any)?.usageMetadata,
+      usageMetadata: finalUsage,
     });
+
+    onProgress?.({ status: 'downloading', percent: 96 });
 
     // Veo download links are authenticated Google endpoints — they require
     // x-goog-api-key on the GET. Without the header the browser gets a 401 and
@@ -127,15 +202,16 @@ export const multimodal = {
         });
         if (fetched.ok) {
           const blob = await fetched.blob();
-          const buf = new Uint8Array(await blob.arrayBuffer());
-          let bin = '';
-          const chunkSize = 0x8000;
-          for (let i = 0; i < buf.length; i += chunkSize) {
-            bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + chunkSize)));
-          }
-          const base64 = btoa(bin);
-          const mime = blob.type || 'video/mp4';
-          return `data:${mime};base64,${base64}`;
+          // Use FileReader.readAsDataURL instead of String.fromCharCode.apply
+          // to avoid Maximum call stack size exceeded on large video/audio files.
+          const dataUrl: string = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          onProgress?.({ status: 'complete', percent: 100 });
+          return dataUrl;
         }
         logger.error('Veo download fetch returned non-ok', fetched.status);
       } catch (e) {
@@ -143,17 +219,23 @@ export const multimodal = {
       }
       // Last resort — return the raw URL so the player at least shows something
       // (will fail silently for the user but won't crash the app).
+      onProgress?.({ status: 'complete', percent: 100 });
       return downloadLink;
     }
 
+    onProgress?.({ status: 'complete', percent: 100 });
     return currentOperation.name ?? null;
   },
 
   // Music Generation (Lyria 3)
   // Lyria 3 outputs are inherently watermarked by the model; client-side verification is not implemented.
+  // Streams audio chunks as they arrive so the UI can display progress instead of
+  // appearing frozen during generation.
   generateMusic: async (
     prompt: string,
-    models?: MultimodalModelOverrides
+    models?: MultimodalModelOverrides,
+    onChunk?: (event: StreamChunkEvent) => void,
+    budget?: BudgetConfig,
   ): Promise<string | null> => {
     const ai = await getAI();
     const model = models?.music ?? DEFAULT_MODEL_IDS.music;
@@ -175,12 +257,35 @@ export const multimodal = {
               mimeType = part.inlineData.mimeType;
             }
             audioBase64 += part.inlineData.data;
+
+            // Emit chunk event so the UI can display streaming progress
+            // (bytes received, current data) instead of appearing frozen.
+            onChunk?.({
+              data: audioBase64,
+              mimeType,
+              bytesReceived: Math.floor(audioBase64.length * 3 / 4), // base64 → bytes
+            });
           }
         }
       }
       const chunkUsage = (chunk as any).usageMetadata;
       if (chunkUsage) {
         lastUsageMetadata = chunkUsage;
+
+        // ── In-flight budget interception ──────────────────────────────────
+        // Evaluate cumulative token usage mid-stream. If the running total
+        // exceeds configured thresholds, abort immediately to prevent cost
+        // overruns. This is the same check the public Gemini workspace uses
+        // to halt runaway generation tasks.
+        if (budget) {
+          const budgetError = checkBudget(chunkUsage, model, budget);
+          if (budgetError) {
+            logger.warn(`[multimodal] Music generation budget exceeded: ${budgetError}`);
+            // The stream iterator will be abandoned when we return early;
+            // no explicit .abort() is needed for generateContentStream.
+            return null;
+          }
+        }
       }
     }
 
@@ -274,7 +379,10 @@ function pcmBase64ToWavBase64(
   let out = '';
   const chunkSize = 0x8000;
   for (let i = 0; i < buf.length; i += chunkSize) {
-    out += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + chunkSize)));
+    const slice = buf.subarray(i, i + chunkSize);
+    for (let j = 0; j < slice.length; j++) {
+      out += String.fromCharCode(slice[j]);
+    }
   }
   return btoa(out);
 }

@@ -14,6 +14,7 @@ export type Thread = {
   createdAt: number;
   updatedAt: number;
   gemId?: string;
+  pinned?: boolean;
 };
 
 export type Gem = {
@@ -34,7 +35,7 @@ export type Artifact = {
   id: string;
   title: string;
   content: string;
-  type: 'code' | 'text' | 'research' | 'audio' | 'video' | 'image';
+  type: 'code' | 'text' | 'research' | 'audio' | 'video' | 'image' | 'html';
   createdAt: number;
   mimeType?: string;
   blobKey?: string;
@@ -53,7 +54,7 @@ export type PersonalIntelligence = {
   instructions: string;
 };
 
-export type AutonomyMode = 'locked' | 'scoped' | 'risk-based' | 'yolo';
+export type AutonomyMode = 'safe' | 'ask' | 'auto-accept' | 'yolo';
 
 export type McpServerConfig = {
   id: string;
@@ -98,7 +99,6 @@ export const DEFAULT_MODEL_SETTINGS: ModelSettings = {
 export type AppSettings = {
   theme: 'light' | 'dark' | 'system' | 'gemini';
   autonomyMode: AutonomyMode;
-  scopedPaths: string[];
   googleDriveEnabled: boolean;
   notebookLmEnabled: boolean;
   searchEnabled: boolean;
@@ -119,4 +119,42 @@ export type AppSettings = {
     screenTranscriptionEnabled: boolean;
   };
   shortcutOverrides?: Record<string, string>;
+};
+// ── Progressive Multi-Modal Lifecycle Callbacks ──────────────────────────────
+
+/** Emitted during streaming generation (music, TTS) as chunks arrive. */
+export type StreamChunkEvent = {
+  /** Base64-encoded data fragment received so far. */
+  data: string;
+  /** MIME type of the payload (e.g. 'audio/wav'). */
+  mimeType: string;
+  /** Cumulative bytes received (decoded from base64). */
+  bytesReceived: number;
+};
+
+/** Emitted during long-running operations (video generation) as status changes. */
+export type GenerationProgressEvent = {
+  /** Human-readable status string (e.g. 'processing', 'downloading'). */
+  status: string;
+  /** 0–100 completion percentage, or -1 if unknown. */
+  percent: number;
+};
+
+/** Budget thresholds for in-flight token/cost interception. */
+export type BudgetConfig = {
+  /** Max thinking tokens per request (0 = unlimited). */
+  maxThinkingTokens: number;
+  /** Max output tokens per request (0 = unlimited). */
+  maxOutputTokens: number;
+  /** Max estimated USD cost per request (0 = unlimited). */
+  maxCostUsdPerRequest: number;
+  /** Max estimated USD cost per day (0 = unlimited). */
+  dailyThresholdUsd: number;
+};
+
+export const DEFAULT_BUDGET_CONFIG: BudgetConfig = {
+  maxThinkingTokens: 0,
+  maxOutputTokens: 0,
+  maxCostUsdPerRequest: 0,
+  dailyThresholdUsd: 0,
 };

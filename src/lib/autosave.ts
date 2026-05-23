@@ -1,7 +1,14 @@
 import { storage } from './storage';
+import type { Thread, Artifact } from '../types';
 
-export function setupAutosave(getAppState) {
-  let timer = null;
+interface AppState {
+  threads: Thread[];
+  activeThreadId: string | null;
+  activeArtifact: Artifact | null;
+}
+
+export function setupAutosave(getAppState: () => AppState) {
+  let timer: ReturnType<typeof setInterval> | null = null;
   const autosave = async () => {
     const { threads, activeThreadId, activeArtifact } = getAppState();
     if (activeThreadId) {

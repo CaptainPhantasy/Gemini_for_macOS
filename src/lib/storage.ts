@@ -1,5 +1,6 @@
 import { openDB, IDBPDatabase } from 'idb';
 import { Thread, Gem, ScheduledAction, Artifact, PersonalIntelligence, AppSettings } from '../types';
+import { normalizeAutonomyMode } from './autonomy';
 
 // Browser-native persistence:
 //   - localStorage for small hot data (settings, personalIntelligence)
@@ -31,7 +32,6 @@ const LS_PI_KEY = 'gemini-for-macos:personalIntelligence';
 const defaultSettings: AppSettings = {
   theme: 'system',
   autonomyMode: 'yolo',
-  scopedPaths: ['/src', '/docs'],
   googleDriveEnabled: false,
   notebookLmEnabled: false,
   searchEnabled: true,
@@ -115,7 +115,12 @@ async function safeGetAll<T>(storeName: string): Promise<T[]> {
 
 function mergeSettings(partial: Partial<AppSettings> | null | undefined): AppSettings {
   if (!partial || typeof partial !== 'object') return defaultSettings;
-  return { ...defaultSettings, ...partial };
+  const { scopedPaths: _discardLegacyScopedPaths, ...settings } = partial as Partial<AppSettings> & { scopedPaths?: unknown };
+  return {
+    ...defaultSettings,
+    ...settings,
+    autonomyMode: normalizeAutonomyMode(settings.autonomyMode),
+  };
 }
 
 function mergePersonalIntelligence(partial: Partial<PersonalIntelligence> | null | undefined): PersonalIntelligence {

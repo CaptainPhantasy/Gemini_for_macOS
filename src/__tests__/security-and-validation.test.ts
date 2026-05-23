@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { sanitizeText, getSafeErrorMessage } from '../lib/security';
 import {
+  parseAppSettingsJSON,
   parseThreadsJSON,
   parseGemsJSON,
   parseScheduledActionsJSON,
@@ -55,6 +56,19 @@ describe('Security Utilities', () => {
 });
 
 describe('JSON Validation', () => {
+  describe('parseAppSettingsJSON', () => {
+    it('accepts canonical autonomy modes', () => {
+      const result = parseAppSettingsJSON(JSON.stringify({ autonomyMode: 'auto-accept' }));
+      expect(result.autonomyMode).toBe('auto-accept');
+    });
+
+    it('migrates legacy autonomy mode ids', () => {
+      expect(parseAppSettingsJSON(JSON.stringify({ autonomyMode: 'locked' })).autonomyMode).toBe('ask');
+      expect(parseAppSettingsJSON(JSON.stringify({ autonomyMode: 'scoped' })).autonomyMode).toBe('safe');
+      expect(parseAppSettingsJSON(JSON.stringify({ autonomyMode: 'risk-based' })).autonomyMode).toBe('safe');
+    });
+  });
+
   describe('parseThreadsJSON', () => {
     it('should parse valid threads JSON', () => {
       const data = JSON.stringify([

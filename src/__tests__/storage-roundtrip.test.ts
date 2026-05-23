@@ -94,16 +94,29 @@ describe('storage round-trip', () => {
     expect(threads[0].id).toBe('thread-1');
   });
 
-  test('saveSettings → getSettings round-trips via localStorage', async () => {
+  test('saveSettings → getSettings round-trips canonical autonomy mode via localStorage', async () => {
     const settings: AppSettings = {
       ...storage.getSettings(),
       theme: 'dark',
-      autonomyMode: 'scoped',
-    } as AppSettings;
+      autonomyMode: 'auto-accept',
+    };
     await storage.saveSettings(settings);
     const reloaded = storage.getSettings();
     expect(reloaded.theme).toBe('dark');
-    expect(reloaded.autonomyMode).toBe('scoped');
+    expect(reloaded.autonomyMode).toBe('auto-accept');
+  });
+
+  test('init migrates legacy stored autonomy modes', async () => {
+    localStorage.setItem(
+      'gemini-for-macos:settings',
+      JSON.stringify({ ...storage.getSettings(), autonomyMode: 'risk-based', scopedPaths: ['/tmp'] })
+    );
+
+    await storage.init();
+
+    const reloaded = storage.getSettings();
+    expect(reloaded.autonomyMode).toBe('safe');
+    expect('scopedPaths' in reloaded).toBe(false);
   });
 
   test('savePersonalIntelligence round-trip', async () => {

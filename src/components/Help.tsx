@@ -1,6 +1,10 @@
 import { X, HelpCircle, Book, Code, Command } from 'lucide-react';
 
-export function Help({ onClose }) {
+interface HelpProps {
+  onClose: () => void;
+}
+
+export function Help({ onClose }: HelpProps) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4">
       <div className="bg-white dark:bg-[#1e1f20] w-full max-w-2xl rounded-2xl shadow-2xl p-6 border border-gray-200 dark:border-gray-800">

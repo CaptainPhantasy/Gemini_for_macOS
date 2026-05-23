@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, Command, RotateCcw } from 'lucide-react';
+import { codeToKey, buildCombo } from '../lib/useKeyboardShortcuts';
 
 interface ShortcutEditorProps {
   onClose: () => void;
@@ -43,22 +44,24 @@ export function ShortcutEditor({ onClose, shortcuts, overrides, onUpdateOverride
       e.preventDefault();
       e.stopPropagation();
 
-      const parts: string[] = [];
-      if (e.metaKey || e.ctrlKey) parts.push('cmd');
-      if (e.shiftKey) parts.push('shift');
-      if (e.altKey) parts.push('alt');
+      const hasCmd   = e.metaKey || e.ctrlKey;
+      const hasShift = e.shiftKey;
+      const hasAlt   = e.altKey;
 
-      const key = e.key.toLowerCase();
-      if (!['meta', 'control', 'shift', 'alt'].includes(key)) {
-        parts.push(key);
-      }
+      // Primary: e.code (layout-independent, reliable in webviews)
+      const codeKey = codeToKey(e.code || '');
+      // Fallback: e.key (for virtual / non-standard keyboards)
+      const fallbackKey = ['meta', 'control', 'shift', 'alt'].includes((e.key || '').toLowerCase())
+        ? null
+        : (e.key || '').toLowerCase();
+      const key = codeKey ?? fallbackKey;
 
-      // Only accept the combo once a non-modifier key has been pressed.
-      if (parts.length > 0 && !['meta', 'control', 'shift', 'alt'].includes(parts[parts.length - 1])) {
-        const combo = parts.join('+');
-        onUpdateOverrides({ ...overrides, [capturingAction]: combo });
-        setCapturingAction(null);
-      }
+      if (!key) return;
+
+      // Only accept once a non-modifier key has been pressed.
+      const combo = buildCombo(hasCmd, hasShift, hasAlt, key);
+      onUpdateOverrides({ ...overrides, [capturingAction]: combo });
+      setCapturingAction(null);
     };
 
     window.addEventListener('keydown', handler, true);

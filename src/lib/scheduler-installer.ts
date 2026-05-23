@@ -1,8 +1,8 @@
 // Scheduler installer — generates install/uninstall commands and launchd plist
 // for scheduled GEMINI actions. Pure functions; no side effects.
 //
-// The browser-sandboxed UI cannot directly run crontab or launchctl, so the UI
-// calls these helpers to produce strings that the user pastes into Terminal.
+// The browser UI cannot directly run crontab or launchctl, so it calls these
+// helpers to produce commands the operator can paste into Terminal.
 
 import { cronToLaunchd, type LaunchdCalendarInterval, type TranslationResult } from './cron-to-launchd';
 

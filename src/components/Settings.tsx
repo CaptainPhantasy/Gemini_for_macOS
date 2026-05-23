@@ -183,10 +183,10 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
   };
 
   const autonomyOptions: { mode: AutonomyMode; label: string; icon: any; desc: string }[] = [
-    { mode: 'locked', label: 'Locked', icon: <Lock size={16} />, desc: 'Always ask for permission before any action.' },
-    { mode: 'scoped', label: 'Scoped', icon: <Shield size={16} />, desc: 'Auto-approve actions in safe directories (src, docs).' },
-    { mode: 'risk-based', label: 'Risk-Based', icon: <ShieldAlert size={16} />, desc: 'Auto-approve Reads, ask for Writes/Executes.' },
-    { mode: 'yolo', label: 'YOLO', icon: <Zap size={16} />, desc: 'Never ask. Full autonomous execution mode.' },
+    { mode: 'safe', label: 'Safe Mode', icon: <Shield size={16} />, desc: 'Auto-approve reads; ask before file changes or commands.' },
+    { mode: 'ask', label: 'Ask Mode', icon: <Lock size={16} />, desc: 'Ask before every local tool action.' },
+    { mode: 'auto-accept', label: 'Auto Accept', icon: <ShieldAlert size={16} />, desc: 'Auto-approve file work; ask before shell commands.' },
+    { mode: 'yolo', label: 'YOLO Mode', icon: <Zap size={16} />, desc: 'Never ask. Full local autonomous execution.' },
   ];
 
   return (

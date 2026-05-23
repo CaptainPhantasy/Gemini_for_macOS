@@ -7,10 +7,11 @@ import { Settings } from './components/Settings';
 import { GemsRegistry } from './components/GemsRegistry';
 import { ScheduledActions } from './components/ScheduledActions';
 import { ArtifactLibrary } from './components/ArtifactLibrary';
-import { Thread, Message, Artifact, AppSettings } from './types';
+import { Thread, Message, Artifact, AppSettings, BudgetConfig, DEFAULT_BUDGET_CONFIG } from './types';
 import { storage } from './lib/storage';
 import { mcpClient } from './lib/mcp';
-import { buildAgentSystemPrompt, parseToolRequest } from './lib/agent-tools';
+import { buildAgentSystemPrompt, buildGeminiTools, extractResponseParts, buildFunctionResponse, parseToolRequest } from './lib/agent-tools';
+import { shouldAutoApproveToolCall, type ToolAction } from './lib/autonomy';
 import { autoSyncArtifact } from './lib/drive-sync';
 import { v4 as uuidv4 } from 'uuid';
 import { getAI } from './lib/api-config';
@@ -26,8 +27,13 @@ import { ShortcutEditor } from "./components/ShortcutEditor";
 import { useKeyboardShortcuts } from "./lib/useKeyboardShortcuts";
 import { setupAutosave } from "./lib/autosave";
 import { windowState } from "./lib/windowState";
-import { costLedger } from "./lib/cost-ledger";
+import { costLedger, PRICING } from "./lib/cost-ledger";
 import { logger } from "./lib/logger";
+import { generateWithFailover } from './lib/generation-wrapper';
+import { selectModel } from './lib/model-orchestrator';
+import { WelcomeScreen } from "./components/WelcomeScreen";
+import { OfflineIndicator } from "./components/OfflineIndicator";
+import { exportThreadAsMarkdown } from "./lib/thread-export";
 import { Search as SearchIcon, Plus, Moon, Sun, Settings as SettingsIcon, Camera, Menu } from "lucide-react";
 
 export default function App() {
@@ -47,12 +53,19 @@ export default function App() {
   const [showShortcutEditor, setShowShortcutEditor] = useState(false);
   const [showLiveMode, setShowLiveMode] = useState(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(storage.getSettings());
 
   // Mobile sidebar drawer state. The CSS in index.css handles the slide-in
   // animation and only activates below 768px — on desktop this state is a
   // no-op because `.mobile-sidebar-wrap` collapses to `display: contents`.
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [navDrawerOpen, setNavDrawerOpen] = useState(false);
+  const [canvasDrawerOpen, setCanvasDrawerOpen] = useState(false);
+  const navRailClosedWidth = 56;
+  const canvasRailClosedWidth = 56;
+  const navRailOpenWidth = 'min(300px, calc(100dvw - 112px))';
+  const canvasRailOpenWidth = 'clamp(320px, 50dvw, calc(100dvw - 112px))';
   const closeMobileSidebar = () => setMobileSidebarOpen(false);
   // Wrap any sidebar callback so picking an item also closes the drawer.
   const whileClosingDrawer = (fn: () => void) => () => {
@@ -71,27 +84,24 @@ export default function App() {
     resolve: (value: boolean) => void;
   } | null>(null);
 
+  // Connect to MCP server on mount so tools are loaded before first message.
   useEffect(() => {
-    // Register MCP permission handler
+    mcpClient.init();
+  }, []);
+
+  useEffect(() => {
+    // Register MCP permission handler. The modes control prompting only;
+    // Desktop Commander remains the local tool surface in every mode.
     mcpClient.setPermissionHandler(async (action, path) => {
-      if (settings.autonomyMode === 'yolo') {
+      if (shouldAutoApproveToolCall(settings.autonomyMode, action as ToolAction)) {
         return true;
-      }
-      
-      if (settings.autonomyMode === 'risk-based' && action === 'READ') {
-        return true;
-      }
-      
-      if (settings.autonomyMode === 'scoped') {
-        const isScoped = settings.scopedPaths.some(p => path.startsWith(p));
-        if (isScoped) return true;
       }
 
       return new Promise((resolve) => {
         setMcpRequest({ action, path, resolve });
       });
     });
-  }, [settings.autonomyMode, settings.scopedPaths]);
+  }, [settings.autonomyMode, settings.mcpServers]);
 
   useEffect(() => {
     const initStorage = async () => {
@@ -110,6 +120,17 @@ export default function App() {
     };
     initStorage();
   }, []);
+
+  // Feature 4: Wire autosave — persist active thread + artifact every 30s
+  useEffect(() => {
+    const autosaver = setupAutosave(() => ({
+      threads,
+      activeThreadId,
+      activeArtifact,
+    }));
+    autosaver.start();
+    return () => autosaver.stop();
+  }, [threads, activeThreadId, activeArtifact]);
 
   useEffect(() => {
     document.documentElement.classList.remove('dark', 'theme-gemini');
@@ -160,6 +181,21 @@ export default function App() {
     setThreads([...storage.getThreads()]);
   };
 
+  // Feature 14: Pin/unpin thread
+  const handlePinThread = async (id: string) => {
+    const thread = threads.find(t => t.id === id);
+    if (!thread) return;
+    const updated = { ...thread, pinned: !thread.pinned, updatedAt: Date.now() };
+    await storage.saveThread(updated);
+    setThreads([...storage.getThreads()]);
+  };
+
+  // Feature 11: Export thread
+  const handleExportThread = (id: string) => {
+    const thread = threads.find(t => t.id === id);
+    if (thread) exportThreadAsMarkdown(thread);
+  };
+
   const handleNewThread = async () => {
     const newThread: Thread = {
       id: uuidv4(),
@@ -190,6 +226,10 @@ export default function App() {
     "cmd+t": () => handleUpdateSettings({...settings, theme: theme === "dark" ? "light" : "dark"}),
     "cmd+l": () => setShowLiveMode(true),
     "f1": () => setShowHelp(true),
+    // Feature 18: Undo/Redo — browser handles these natively for text inputs,
+    // but we add explicit bindings so the shortcut editor can display them.
+    "cmd+z": () => document.execCommand('undo'),
+    "cmd+shift+z": () => document.execCommand('redo'),
   };
 
   // Apply user shortcut overrides: remap default combos to custom combos.
@@ -212,6 +252,7 @@ export default function App() {
 
   const handleSendMessage = async (content: string, _type?: string, attachment?: { dataUri: string; mimeType: string; name: string }) => {
     if (!activeThread) return;
+    setIsLoading(true);
 
     const userMsg: Message = {
       id: uuidv4(),
@@ -245,7 +286,7 @@ export default function App() {
       // Tool-aware system prompt — teaches the model about Desktop Commander MCP
       // capabilities, its persistent memory directory, and the Tool:/Args: protocol
       // that parseToolRequest understands.
-      const tools = mcpClient.getAvailableTools();
+      const tools = await mcpClient.awaitTools();
       const toolPrompt = buildAgentSystemPrompt(tools);
       const memoryNotice =
         `PERSISTENT MEMORY:\n` +
@@ -274,71 +315,197 @@ export default function App() {
 
       const ai = await getAI();
       console.log('Sending message to model with history:', historyContents.length, 'turns');
-      const textModel = settings.models?.text ?? 'gemini-3.1-pro-preview';
 
-      // Tool-call loop: allow the model to emit Tool:/Args: blocks, execute them
-      // via MCP, and feed results back. Cap at 5 iterations to avoid runaway loops.
-      const workingContents: Array<{ role: string; parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> }> = [
-        ...historyContents,
-      ];
+      // Build tool config: MCP tools as native functionDeclarations + optional Google Search.
+      const geminiTools = buildGeminiTools(tools, !!settings.searchEnabled);
+
+      // ── Intent-driven model orchestration (Roadmap §3c) ──────────────────
+      // Evaluate the message content and available tools to select the optimal
+      // model. High-impact actions (WRITE/EXECUTE) route to the pro model with
+      // thinking budgets; read-only queries route to the flash model for speed.
+      const modelSelection = selectModel(content, tools, settings);
+      const selectedModel = modelSelection.model;
+      const thinkingConfig = modelSelection.thinkingBudget
+        ? { thinkingBudget: modelSelection.thinkingBudget }
+        : undefined;
+      console.log(`[orchestrator] ${modelSelection.reason} → ${selectedModel}`);
+
+      // ── Fix: Use ai.models.generateContent with proper history management ──
+      // The manual workingContents loop correctly preserves functionCall and
+      // functionResponse parts in the conversation history, preventing the
+      // context window fragmentation that caused the two-turn freeze.
+      // Key fixes applied:
+      // 1. Model content parts are preserved verbatim (including thought signatures)
+      // 2. Function responses are appended as proper user-role messages
+      // 3. Stale closure race condition is fixed (see finalThread below)
+      const workingContents: Array<Record<string, unknown>> = [...historyContents];
       let response: any;
       let responseText = '';
-      for (let iter = 0; iter < 5; iter++) {
-        response = await ai.models.generateContent({
-          model: textModel,
-          contents: workingContents,
+      for (let iter = 0; iter < 10; iter++) {
+        // ── Dual-tier cascading failover (Roadmap §3b) ───────────────────
+        // Wrap the generation call with automatic retry and model fallback.
+        // If the primary model fails with a transient error, retry with
+        // exponential backoff. If retries exhaust, fall back to textFallback.
+        const result = await generateWithFailover({
+          ai,
+          model: selectedModel,
+          fallbackModel: settings.models?.textFallback,
+          contents: workingContents as any,
           config: {
             systemInstruction: systemInstruction.trim() ? systemInstruction : undefined,
-            thinkingConfig: settings.thinkingBudgets?.text
-              ? { thinkingBudget: settings.thinkingBudgets.text }
-              : undefined,
-            tools: settings.searchEnabled
-              ? [{ googleSearch: {} }]
-              : undefined,
+            thinkingConfig,
+            tools: geminiTools.length > 0 ? geminiTools : undefined,
           },
         });
-        const textOrFn: any = (response as any).text;
-        responseText = typeof textOrFn === 'function' ? textOrFn() : textOrFn || '';
+        response = result.response;
 
+
+        const { text, functionCalls } = extractResponseParts(response);
+
+        // ── In-flight budget interception ──────────────────────────────────
+        // Evaluate cumulative token usage after each generation call. If the
+        // running total exceeds configured thresholds, abort immediately to
+        // prevent cost overruns. This mirrors the public Gemini workspace which
+        // limits and halts runaway tasks mid-stream.
+        const budget: BudgetConfig = settings.cost
+          ? {
+              maxThinkingTokens: settings.thinkingBudgets?.text ?? 0,
+              maxOutputTokens: 0,
+              maxCostUsdPerRequest: 0,
+              dailyThresholdUsd: settings.cost.dailyThresholdUsd ?? 0,
+            }
+          : DEFAULT_BUDGET_CONFIG;
+        const usage: any = (response as any)?.usageMetadata;
+        if (usage && budget.dailyThresholdUsd > 0) {
+          const inputTokens = usage.promptTokenCount ?? 0;
+          const outputTokens = usage.candidatesTokenCount ?? 0;
+          const thinkingTokens = usage.thoughtsTokenCount ?? 0;
+          const pricing = PRICING[selectedModel];
+          if (pricing) {
+            const inputCost = (inputTokens / 1_000_000) * pricing.inputPerMillion;
+            const outputCost = (outputTokens / 1_000_000) * pricing.outputPerMillion;
+            const thinkCost = (thinkingTokens / 1_000_000) * (pricing.thinkingPerMillion ?? pricing.outputPerMillion);
+            const totalCost = inputCost + outputCost + thinkCost;
+            try {
+              const todaySpend = await costLedger.todayUsd();
+              if (todaySpend + totalCost > budget.dailyThresholdUsd) {
+                logger.warn(`[budget] Daily spend threshold exceeded: $${(todaySpend + totalCost).toFixed(4)} > $${budget.dailyThresholdUsd}`);
+                responseText = `⚠️ Budget limit reached: daily spend ($${(todaySpend + totalCost).toFixed(2)}) would exceed the $${budget.dailyThresholdUsd} threshold. Generation stopped.`;
+                break;
+              }
+            } catch (e) {
+              logger.warn("[budget] Could not check daily spend", e);
+            }
+          }
+        }
+        if (usage && budget.maxThinkingTokens > 0 && (usage.thoughtsTokenCount ?? 0) > budget.maxThinkingTokens) {
+          logger.warn(`[budget] Thinking token budget exceeded: ${usage.thoughtsTokenCount} > ${budget.maxThinkingTokens}`);
+          responseText = `⚠️ Thinking token budget exceeded (${usage.thoughtsTokenCount} / ${budget.maxThinkingTokens}). Generation stopped.`;
+          break;
+        }
+
+        // ── Native function-calling path (preferred) ──
+        if (functionCalls.length > 0) {
+          // Append the model's raw response content (preserves thought signatures,
+          // thought parts, and any other fields the SDK/API requires).
+          // This is the recommended approach per Gemini 3 docs — never reconstruct
+          // function call parts manually, as it loses thought signatures.
+          const modelContent = (response as any)?.candidates?.[0]?.content;
+          if (modelContent) {
+            workingContents.push({
+              role: 'model',
+              parts: modelContent.parts,
+            });
+          } else {
+            // Fallback if raw content unavailable
+            workingContents.push({
+              role: 'model',
+              parts: functionCalls.map(fc => ({
+                functionCall: { name: fc.name, args: fc.args },
+              })),
+            });
+          }
+
+          // Execute each tool call and feed results back
+          for (const fc of functionCalls) {
+            try {
+              const toolResult = await mcpClient.executeTool(fc.name, fc.args);
+              const funcResponse = buildFunctionResponse(fc.name, toolResult, fc.id);
+              workingContents.push(funcResponse);
+            } catch (toolErr) {
+              workingContents.push(
+                buildFunctionResponse(fc.name, { error: String(toolErr) }, fc.id)
+              );
+            }
+          }
+          continue; // next iteration — model may call more tools
+        }
+
+        // ── Text path: model returned a text response (possibly with Tool:/Args:) ──
+        responseText = text;
         const toolReq = parseToolRequest(responseText);
-        if (!toolReq) break;
+        if (toolReq) {
+          // Legacy fallback: model used text-based protocol
+          try {
+            const toolResult = await mcpClient.executeTool(toolReq.toolName, toolReq.args);
+            const resultText =
+              typeof toolResult === 'string'
+                ? toolResult
+                : JSON.stringify(toolResult, null, 2);
+            workingContents.push(
+              { role: 'model', parts: [{ text: responseText }] },
+              { role: 'user', parts: [{ text: `TOOL_RESULT ${toolReq.toolName}:\n${resultText}` }] }
+            );
+          } catch (toolErr) {
+            workingContents.push(
+              { role: 'model', parts: [{ text: responseText }] },
+              { role: 'user', parts: [{ text: `TOOL_ERROR ${toolReq.toolName}: ${String(toolErr)}` }] }
+            );
+          }
+          continue;
+        }
 
-        try {
-          const toolResult = await mcpClient.executeTool(toolReq.toolName, toolReq.args);
-          const resultText =
-            typeof toolResult === 'string'
-              ? toolResult
-              : JSON.stringify(toolResult, null, 2);
-          workingContents.push(
-            { role: 'model', parts: [{ text: responseText }] },
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: `TOOL_RESULT ${toolReq.toolName}:\n${resultText}`,
-                },
-              ],
+        // Pure text response with no tool calls — done.
+        break;
+      }
+      console.log('Final response text:', responseText);
+
+      // ── Fallback: if the model returned only function calls across all iterations
+      // and never produced a text summary, synthesize one from the tool results
+      // so the user sees something instead of an empty "0 words" bubble.
+      if (!responseText || responseText.trim().length === 0) {
+        const toolSummaries: string[] = [];
+        for (const content of workingContents) {
+          const parts = (content as any)?.parts;
+          if (Array.isArray(parts)) {
+            for (const part of parts) {
+              if (part.functionResponse?.response) {
+                const resp = part.functionResponse.response;
+                const text = typeof resp === 'string' ? resp : JSON.stringify(resp, null, 2);
+                if (text && text.length > 0) {
+                  toolSummaries.push(text.slice(0, 500));
+                }
+              }
             }
-          );
-        } catch (toolErr) {
-          workingContents.push(
-            { role: 'model', parts: [{ text: responseText }] },
-            {
-              role: 'user',
-              parts: [{ text: `TOOL_ERROR ${toolReq.toolName}: ${String(toolErr)}` }],
-            }
-          );
+          }
+        }
+        if (toolSummaries.length > 0) {
+          responseText = 'I completed the requested actions. Here are the results:\n\n' +
+            toolSummaries.map((s, i) => `**Result ${i + 1}:**\n${s}`).join('\n\n');
+          console.log('[fallback] Synthesized response from tool results:', responseText.length, 'chars');
+        } else {
+          responseText = 'I processed your request but the response was empty. Please try again or rephrase your question.';
+          console.log('[fallback] No tool results found; using generic message');
         }
       }
       console.log('Final response text:', responseText);
-      console.log('Response text:', responseText);
 
       // Phase 3b — log cost for this chat call (best-effort; never block UX on failure).
       try {
-        const usage: any = (response as any).usageMetadata ?? {};
+        const usage: any = (response as any)?.usageMetadata ?? {};
         await costLedger.record({
           timestamp: Date.now(),
-          model: textModel,
+          model: selectedModel,
           capability: 'chat',
           inputTokens: usage.promptTokenCount ?? 0,
           outputTokens: usage.candidatesTokenCount ?? 0,
@@ -366,9 +533,14 @@ export default function App() {
         artifactData: detectedArtifacts.length > 0 ? detectedArtifacts[0] : undefined
       };
 
+      // Fix: Read fresh thread state from storage before saving to prevent
+      // stale closure overwrites. Any external action (cron, edit, pin) that
+      // modified the thread during the async generation window would otherwise
+      // be wiped out by the captured `updatedThread` reference.
+      const currentThread = storage.getThreads().find(t => t.id === activeThreadId) || updatedThread;
       const finalThread = {
-        ...updatedThread,
-        messages: [...updatedMessages, modelMsg],
+        ...currentThread,
+        messages: [...currentThread.messages, modelMsg],
         updatedAt: Date.now()
       };
 
@@ -382,7 +554,40 @@ export default function App() {
     } catch (error) {
       console.error('Error generating content:', error);
       alert(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  // Feature 10: Regenerate last model response
+  const handleRegenerate = async () => {
+    if (!activeThread) return;
+    const msgs = activeThread.messages;
+    // Find last user message
+    const lastUserIdx = msgs.reduce((acc, m, i) => m.role === 'user' ? i : acc, -1);
+    if (lastUserIdx < 0) return;
+    const lastUserMsg = msgs[lastUserIdx];
+    // Remove all messages after the last user message
+    const trimmedMessages = msgs.slice(0, lastUserIdx);
+    const trimmedThread = { ...activeThread, messages: trimmedMessages, updatedAt: Date.now() };
+    await storage.saveThread(trimmedThread);
+    setThreads([...storage.getThreads()]);
+    // Re-send the last user message
+    await handleSendMessage(lastUserMsg.content);
+  };
+
+  // Feature 15: Edit user message and resubmit
+  const handleEditMessage = async (messageId: string, newContent: string) => {
+    if (!activeThread) return;
+    const msgIndex = activeThread.messages.findIndex(m => m.id === messageId);
+    if (msgIndex < 0) return;
+    // Keep only messages up to (but not including) the edited message
+    const trimmedMessages = activeThread.messages.slice(0, msgIndex);
+    const trimmedThread = { ...activeThread, messages: trimmedMessages, updatedAt: Date.now() };
+    await storage.saveThread(trimmedThread);
+    setThreads([...storage.getThreads()]);
+    // Send the new content
+    await handleSendMessage(newContent);
   };
 
   const handleMcpResponse = (allowed: boolean) => {
@@ -397,7 +602,14 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 font-sans">
+    <div
+      className="grid h-dvh max-h-dvh min-h-0 w-full overflow-hidden bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 font-sans transition-[grid-template-columns] duration-300 ease-in-out"
+      style={{
+        gridTemplateColumns: `${navDrawerOpen ? navRailOpenWidth : `${navRailClosedWidth}px`} minmax(0, 1fr) ${canvasDrawerOpen ? canvasRailOpenWidth : `${canvasRailClosedWidth}px`}`,
+      }}
+    >
+      {/* Feature 12: Offline indicator */}
+      <OfflineIndicator />
       {/* Mobile hamburger — hidden on desktop via CSS media query. */}
       <button
         type="button"
@@ -439,32 +651,51 @@ export default function App() {
           onOpenShortcutEditor={whileClosingDrawer(() => setShowShortcutEditor(true))}
           onDeleteThread={handleDeleteThread}
           onRenameThread={handleRenameThread}
+          onPinThread={handlePinThread}
+          onExportThread={handleExportThread}
+          onOpenArtifact={(artifact, threadId) => {
+            closeMobileSidebar();
+            setActiveThreadId(threadId);
+            setActiveArtifact(artifact);
+          }}
+          drawerOpen={navDrawerOpen}
+          onDrawerOpenChange={setNavDrawerOpen}
         />
       </div>
       
-      <div className="flex-1 flex relative" role="main" aria-label="Main chat area">
+      <div className="min-h-0 min-w-0 flex relative overflow-hidden" role="main" aria-label="Main chat area">
         <Chat
           messages={activeThread?.messages || []}
           onSendMessage={handleSendMessage}
-          onOpenArtifact={(artifact) => setActiveArtifact(artifact)}
+          onOpenArtifact={(artifact) => {
+            if (typeof artifact === 'object' && artifact !== null) {
+              setActiveArtifact(artifact as Artifact);
+            } else if (typeof artifact === 'string') {
+              // Handle string artifact data if needed
+              setActiveArtifact(null);
+            }
+          }}
           gems={storage.getGems().map(g => ({ id: g.id, name: g.name }))}
           activeGemId={activeThread?.gemId}
           onSetGem={handleSetGem}
+          isLoading={isLoading}
+          onRegenerate={handleRegenerate}
+          onEditMessage={handleEditMessage}
         />
-        
-        {activeArtifact && (
-          <Canvas
-            artifact={activeArtifact}
-            onClose={() => setActiveArtifact(null)}
-            settings={settings}
-          />
-        )}
       </div>
+
+      <Canvas
+        artifact={activeArtifact}
+        onClose={() => setActiveArtifact(null)}
+        settings={settings}
+        drawerOpen={canvasDrawerOpen}
+        onDrawerOpenChange={setCanvasDrawerOpen}
+      />
 
       {showPI && <PersonalIntelligencePopup onClose={() => setShowPI(false)} />}
       {showSettings && <Settings onClose={() => setShowSettings(false)} settings={settings} onUpdateSettings={handleUpdateSettings} />}
       {showGems && <GemsRegistry onClose={() => setShowGems(false)} />}
-      {showSchedule && <ScheduledActions onClose={() => setShowSchedule(false)} />}
+      {showSchedule && <ScheduledActions onClose={() => setShowSchedule(false)} onRunPrompt={handleSendMessage} />}
       {showArtifacts && <ArtifactLibrary onClose={() => setShowArtifacts(false)} onOpenArtifact={(artifact) => { setActiveArtifact(artifact); setShowArtifacts(false); }} />}
       {showSearch && <Search onClose={() => setShowSearch(false)} onOpenThread={(id) => setActiveThreadId(id)} onOpenArtifact={(a) => setActiveArtifact(a)} />}
       {showCommandPalette && <CommandPalette onClose={() => setShowCommandPalette(false)} actions={paletteActions} />}

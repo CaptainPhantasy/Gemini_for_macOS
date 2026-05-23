@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+
+# ── Hard Gate: Prevent broken code from entering the repository ──
+# If typecheck or tests fail, the commit is rejected.
+# No CI loop, no PR notification — the failure simply cannot be committed.
+
+echo "⏳ Running typecheck..."
+npx tsc --noEmit
+if [ $? -ne 0 ]; then
+  echo "🛑 Typecheck failed. Commit rejected."
+  exit 1
+fi
+
+echo "⏳ Running tests..."
+npx vitest run
+if [ $? -ne 0 ]; then
+  echo "🛑 Tests failed. Commit rejected."
+  exit 1
+fi
+
+echo "✅ All checks passed. Proceeding with commit."

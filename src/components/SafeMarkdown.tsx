@@ -1,25 +1,28 @@
-/**
- * SafeMarkdown Component
- * Renders markdown safely, preventing XSS attacks.
- *
- * Architecture:
- *  - react-markdown is safe by default: it does NOT pass raw HTML through
- *    (no rehype-raw is used), so `<script>` and other tags in markdown
- *    source are rendered as literal text, not executed.
- *  - We additionally run DOMPurify over the rendered DOM as defense-in-depth
- *    via a ref-based post-render sanitization pass.
- *  - Crucially, we do NOT pre-sanitize the markdown source string. Doing so
- *    caused `<` characters inside code fences to be escaped to `&lt;` before
- *    react-markdown saw them, producing literal `&lt;` in code blocks.
- */
-
-import React, { useEffect, useRef } from 'react';
+// SafeMarkdown: XSS-safe markdown renderer with code block copy support.
+// react-markdown is safe by default (no rehype-raw). DOMPurify runs as defense-in-depth.
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Markdown from 'react-markdown';
 import DOMPurify from 'dompurify';
+import { Copy, Check } from 'lucide-react';
 
 interface SafeMarkdownProps {
   children: string;
   options?: Record<string, unknown>;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [text]);
+  return (
+    <button onClick={handleCopy} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-200 transition-colors">
+      {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy</>}
+    </button>
+  );
 }
 
 /**
@@ -41,9 +44,15 @@ export function SafeMarkdown({ children, options }: SafeMarkdownProps) {
       ALLOWED_TAGS: [
         'b', 'i', 'em', 'strong', 'a', 'p', 'br', 'ul', 'ol', 'li',
         'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'code', 'pre',
-        'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'span', 'div'
+        'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'span', 'div',
+        'button', 'svg', 'path', 'line', 'polyline'
       ],
-      ALLOWED_ATTR: ['href', 'target', 'rel', 'src', 'alt', 'title', 'class'],
+      ALLOWED_ATTR: [
+        'href', 'target', 'rel', 'src', 'alt', 'title', 'class',
+        'xmlns', 'viewbox', 'width', 'height', 'fill', 'stroke',
+        'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd',
+        'x1', 'y1', 'x2', 'y2', 'points',
+      ],
       ALLOW_UNKNOWN_PROTOCOLS: false,
     } as Parameters<typeof DOMPurify.sanitize>[1]);
 
@@ -83,6 +92,23 @@ export function SafeMarkdown({ children, options }: SafeMarkdownProps) {
               }}
             />
           ),
+          // Syntax-highlighted code blocks and inline code
+          code: ({ className, children }) => {
+            const match = /language-(\w+)/.exec(className || '');
+            const text = String(children).replace(/\n$/, '');
+            if (!match) {
+              return <code className="bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-sm font-mono">{children}</code>;
+            }
+            return (
+              <div className="relative my-3 bg-gray-900 dark:bg-[#0d0d0d] rounded-xl overflow-hidden text-sm">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700/50">
+                  <span className="text-xs text-gray-400 font-mono">{match[1]}</span>
+                  <CopyButton text={text} />
+                </div>
+                <pre className="overflow-x-auto p-4 m-0"><code className={`${className} font-mono text-gray-100`}>{children}</code></pre>
+              </div>
+            );
+          },
           ...options,
         }}
       >
