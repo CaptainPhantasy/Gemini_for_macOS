@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run mcp-server\" \"npm run vite-dev\"",
-    "vite-dev": "vite --port=13000 --host=0.0.0.0",
+    "vite-dev": "vite --port=13000 --host=127.0.0.1 --strictPort",
     "mcp-server": "tsx src/server/mcp-server.ts",
     "build": "vite build",
     "preview": "vite preview",
