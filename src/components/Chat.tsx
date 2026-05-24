@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Message, Artifact } from '../types';
 import { SafeMarkdown } from './SafeMarkdown';
 import { TypingIndicator } from './TypingIndicator';
-import { Send, Image as ImageIcon, Video, Play, Upload, X, Diamond, Copy, Check, RefreshCw, Pencil, ChevronDown } from 'lucide-react';
+import { Send, Image as ImageIcon, Video, Play, Upload, X, Diamond, Copy, Check, RefreshCw, Pencil, ChevronDown, FileUp, FolderOpen } from 'lucide-react';
+import { buildFolderContextBundle, COMMON_FILE_ACCEPT } from '../lib/attachment-context';
 
 interface ChatProps {
   messages: Message[];
@@ -20,6 +21,7 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
   const [input, setInput] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [attachment, setAttachment] = useState<{ dataUri: string; mimeType: string; name: string } | null>(null);
+  const [contextBundle, setContextBundle] = useState<{ name: string; text: string; fileCount: number } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
@@ -30,6 +32,8 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
   const inputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   // Feature 19: Smart auto-scroll — only scroll to bottom when user is already near bottom
   const scrollToBottom = useCallback(() => {
@@ -54,6 +58,11 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
   useEffect(() => {
     inputRef.current?.focus();
   }, [messages.length === 0]);
+
+  useEffect(() => {
+    folderInputRef.current?.setAttribute('webkitdirectory', '');
+    folderInputRef.current?.setAttribute('directory', '');
+  }, []);
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
@@ -82,7 +91,7 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
     reader.onload = () => {
       setAttachment({
         dataUri: reader.result as string,
-        mimeType: file.type,
+        mimeType: file.type || 'application/octet-stream',
         name: file.name,
       });
     };
@@ -90,12 +99,23 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
     e.target.value = '';
   };
 
+  const handleFolderSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const bundle = await buildFolderContextBundle(files);
+    if (bundle) setContextBundle(bundle);
+    e.target.value = '';
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (input.trim() || attachment) {
-      onSendMessage(input, undefined, attachment ?? undefined);
+    if (input.trim() || attachment || contextBundle) {
+      const content = contextBundle ? `${input}\n\n${contextBundle.text}`.trim() : input;
+      onSendMessage(content, undefined, attachment ?? undefined);
       setInput('');
       setAttachment(null);
+      setContextBundle(null);
       // Feature 20: refocus after send
       setTimeout(() => inputRef.current?.focus(), 50);
     }
@@ -273,15 +293,31 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
       )}
 
       <div className="w-full max-w-4xl mx-auto p-4 min-w-0 shrink-0">
-        {attachment && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-t-xl text-sm text-gray-700 dark:text-gray-300">
-            <span className="truncate">{attachment.name}</span>
-            <button type="button" onClick={() => setAttachment(null)} className="text-gray-400 hover:text-red-500">
-              <X size={14} />
-            </button>
+        {(attachment || contextBundle) && (
+          <div className="space-y-1 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-t-xl text-sm text-gray-700 dark:text-gray-300">
+            {attachment && (
+              <div className="flex items-center gap-2">
+                <span className="truncate">File: {attachment.name}</span>
+                <button type="button" onClick={() => setAttachment(null)} className="text-gray-400 hover:text-red-500">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+            {contextBundle && (
+              <div className="flex items-center gap-2">
+                <span className="truncate">{contextBundle.name} · {contextBundle.text.length.toLocaleString()} chars prepared</span>
+                <button type="button" onClick={() => setContextBundle(null)} className="text-gray-400 hover:text-red-500">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
           </div>
         )}
         <form onSubmit={handleSubmit} className="relative flex items-center bg-gray-100 dark:bg-[#2a2b2c] rounded-full px-4 py-2 shadow-sm focus-within:ring-2 focus-within:ring-blue-500">
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Attach common file type">
+            <FileUp size={20} />
+          </button>
+          <input ref={fileInputRef} type="file" accept={COMMON_FILE_ACCEPT} className="hidden" onChange={(e) => handleFileSelect(e)} />
           <button type="button" onClick={() => imageInputRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Upload Image">
             <ImageIcon size={20} />
           </button>
@@ -290,6 +326,10 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
             <Video size={20} />
           </button>
           <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={(e) => handleFileSelect(e)} />
+          <button type="button" onClick={() => folderInputRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Attach folder context">
+            <FolderOpen size={20} />
+          </button>
+          <input ref={folderInputRef} type="file" multiple className="hidden" onChange={(e) => { void handleFolderSelect(e); }} />
           <input
             ref={inputRef}
             type="text"
@@ -299,7 +339,7 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
             disabled={isLoading}
             className="flex-1 bg-transparent border-none focus:outline-none px-4 py-2 text-gray-900 dark:text-gray-100 disabled:opacity-50"
           />
-          <button type="submit" disabled={(!input.trim() && !attachment) || isLoading} className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+          <button type="submit" disabled={(!input.trim() && !attachment && !contextBundle) || isLoading} className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
             <Send size={18} />
           </button>
         </form>
