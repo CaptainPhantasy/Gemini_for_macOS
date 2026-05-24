@@ -73,6 +73,7 @@ function flumResponse(
 export interface McpContext {
   isDesktopCommanderReady: () => boolean;
   getDesktopCommanderToolCount: () => number;
+  getDesktopCommanderTools: () => Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
   getSseClients: () => Array<{ isReady: () => boolean; getTools: () => Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> }>;
   callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>;
   detectLocalMcpServers: () => Promise<Array<{
@@ -164,11 +165,10 @@ router.get('/api/tools', async (_req, res) => {
   const ctx = requireContext();
   const startTime = Date.now();
 
-  // Merge tools from Desktop Commander + SSE clients
+  // Merge tools from Desktop Commander + SSE clients.
   const allTools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> = [];
   if (ctx.isDesktopCommanderReady()) {
-    // Desktop Commander tools are fetched via callTool('tools/list') or cached
-    // For the REST API, we return the fallback tool list + SSE tools
+    allTools.push(...ctx.getDesktopCommanderTools());
   }
   for (const client of ctx.getSseClients()) {
     if (client.isReady()) {
@@ -195,6 +195,96 @@ router.get('/api/tools', async (_req, res) => {
       tip: 'For file operations: read_file, write_file, list_directory. For processes: start_process, list_processes. For web: tavily_search, tavily_extract.',
     }
   ));
+});
+
+// ── Desktop Commander Privileges ───────────────────────────────────────────
+
+function extractTextFromMcpResult(result: unknown): string {
+  if (typeof result === 'string') return result;
+  if (result && typeof result === 'object' && 'content' in result) {
+    const content = (result as { content?: Array<{ text?: string }> }).content || [];
+    return content.map(item => item.text || '').join('\n');
+  }
+  return JSON.stringify(result);
+}
+
+function parseDesktopCommanderConfig(result: unknown): Record<string, unknown> {
+  const text = extractTextFromMcpResult(result);
+  const jsonStart = text.indexOf('{');
+  const jsonEnd = text.lastIndexOf('}');
+  if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+    throw new Error('Desktop Commander config response did not include JSON');
+  }
+  return JSON.parse(text.slice(jsonStart, jsonEnd + 1));
+}
+
+router.get('/api/desktop-commander/config', async (_req, res) => {
+  const ctx = requireContext();
+  const startTime = Date.now();
+
+  try {
+    const config = parseDesktopCommanderConfig(await ctx.callTool('get_config', {}));
+    res.json(flumResponse(
+      'success',
+      'Desktop Commander configuration loaded.',
+      'Use PATCH /api/desktop-commander/config with {key,value} to change privileges.',
+      ['PATCH /api/desktop-commander/config', 'POST /api/execute?action=set_config_value'],
+      { tool: 'get_config', metadata: { startTime }, advanced: { config } }
+    ));
+  } catch (error) {
+    res.status(500).json(flumResponse(
+      'failure',
+      `Could not load Desktop Commander configuration: ${String(error)}`,
+      'Ensure the GEMINI MCP server is running and Desktop Commander is connected.',
+      ['GET /api/diagnostic'],
+      { tool: 'get_config', metadata: { startTime } }
+    ));
+  }
+});
+
+router.patch('/api/desktop-commander/config', async (req, res) => {
+  const ctx = requireContext();
+  const startTime = Date.now();
+  const { key, value } = req.body || {};
+
+  const allowedKeys = new Set([
+    'allowedDirectories',
+    'blockedCommands',
+    'defaultShell',
+    'fileReadLineLimit',
+    'fileWriteLineLimit',
+    'telemetryEnabled',
+  ]);
+
+  if (typeof key !== 'string' || !allowedKeys.has(key)) {
+    return res.status(400).json(flumResponse(
+      'failure',
+      'Invalid Desktop Commander config key.',
+      `Allowed keys: ${Array.from(allowedKeys).join(', ')}`,
+      ['GET /api/desktop-commander/config'],
+      { tool: 'set_config_value', metadata: { startTime } }
+    ));
+  }
+
+  try {
+    await ctx.callTool('set_config_value', { key, value, origin: 'ui' });
+    const config = parseDesktopCommanderConfig(await ctx.callTool('get_config', {}));
+    res.json(flumResponse(
+      'success',
+      `Desktop Commander ${key} updated.`,
+      'Configuration was written through Desktop Commander using origin=ui.',
+      ['GET /api/desktop-commander/config'],
+      { tool: 'set_config_value', metadata: { startTime }, advanced: { config } }
+    ));
+  } catch (error) {
+    res.status(500).json(flumResponse(
+      'failure',
+      `Could not update Desktop Commander ${key}: ${String(error)}`,
+      'Check the value shape and Desktop Commander connectivity.',
+      ['GET /api/desktop-commander/config'],
+      { tool: 'set_config_value', metadata: { startTime } }
+    ));
+  }
 });
 
 // ── Execute (One Door In — FLUM Principle 1) ────────────────────────────────
