@@ -10,6 +10,7 @@ import { ArtifactLibrary } from './components/ArtifactLibrary';
 import { Thread, Message, Artifact, AppSettings, BudgetConfig, DEFAULT_BUDGET_CONFIG } from './types';
 import { storage } from './lib/storage';
 import { mcpClient } from './lib/mcp';
+import { buildDirectoryLockPrompt } from './lib/directory-lock';
 import { buildAgentSystemPrompt, buildGeminiTools, extractResponseParts, buildFunctionResponse, parseToolRequest } from './lib/agent-tools';
 import { shouldAutoApproveToolCall, type ToolAction } from './lib/autonomy';
 import { autoSyncArtifact } from './lib/drive-sync';
@@ -90,8 +91,23 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const openSettings = () => setShowSettings(true);
+    const openSettingsFromHash = () => {
+      if (window.location.hash === '#settings') setShowSettings(true);
+    };
+    window.addEventListener('gemini-open-settings', openSettings);
+    window.addEventListener('hashchange', openSettingsFromHash);
+    openSettingsFromHash();
+    return () => {
+      window.removeEventListener('gemini-open-settings', openSettings);
+      window.removeEventListener('hashchange', openSettingsFromHash);
+    };
+  }, []);
+
+  useEffect(() => {
     // Register MCP permission handler. The modes control prompting only;
     // Desktop Commander remains the local tool surface in every mode.
+    mcpClient.setDirectoryLock(settings.directoryLock);
     mcpClient.setPermissionHandler(async (action, path) => {
       if (shouldAutoApproveToolCall(settings.autonomyMode, action as ToolAction)) {
         return true;
@@ -101,7 +117,7 @@ export default function App() {
         setMcpRequest({ action, path, resolve });
       });
     });
-  }, [settings.autonomyMode, settings.mcpServers]);
+  }, [settings.autonomyMode, settings.mcpServers, settings.directoryLock]);
 
   useEffect(() => {
     const initStorage = async () => {
@@ -295,7 +311,8 @@ export default function App() {
         `Use read_file on .gemini-memory/summary.md at the start of a task to ` +
         `restore prior context, and write_file to update it with durable facts. ` +
         `Never store secrets there. See .gemini-memory/README.md for layout.`;
-      const systemInstruction = [activeGem?.systemInstruction, toolPrompt, memoryNotice, userPrefs]
+      const directoryLockNotice = buildDirectoryLockPrompt(settings.directoryLock);
+      const systemInstruction = [activeGem?.systemInstruction, toolPrompt, directoryLockNotice, memoryNotice, userPrefs]
         .filter(Boolean)
         .join('\n\n');
 
@@ -474,28 +491,29 @@ export default function App() {
       // and never produced a text summary, synthesize one from the tool results
       // so the user sees something instead of an empty "0 words" bubble.
       if (!responseText || responseText.trim().length === 0) {
-        const toolSummaries: string[] = [];
+        const observedToolCalls: string[] = [];
         for (const content of workingContents) {
           const parts = (content as any)?.parts;
           if (Array.isArray(parts)) {
             for (const part of parts) {
-              if (part.functionResponse?.response) {
-                const resp = part.functionResponse.response;
-                const text = typeof resp === 'string' ? resp : JSON.stringify(resp, null, 2);
-                if (text && text.length > 0) {
-                  toolSummaries.push(text.slice(0, 500));
-                }
+              if (part.functionResponse) {
+                const name = part.functionResponse.name || 'unknown_tool';
+                const response = part.functionResponse.response;
+                const status = response && typeof response === 'object' && 'error' in response ? 'FAILED' : 'OBSERVED';
+                observedToolCalls.push(`- ${name}: ${status}`);
               }
             }
           }
         }
-        if (toolSummaries.length > 0) {
-          responseText = 'I completed the requested actions. Here are the results:\n\n' +
-            toolSummaries.map((s, i) => `**Result ${i + 1}:**\n${s}`).join('\n\n');
-          console.log('[fallback] Synthesized response from tool results:', responseText.length, 'chars');
+        if (observedToolCalls.length > 0) {
+          responseText = 'Tool execution completed, but the model did not provide a final summary.\n\n' +
+            'Observed tool calls:\n' +
+            observedToolCalls.join('\n') +
+            '\n\nRaw details are available in debug mode.';
+          console.log('[fallback] Synthesized safe tool-call summary:', responseText.length, 'chars');
         } else {
-          responseText = 'I processed your request but the response was empty. Please try again or rephrase your question.';
-          console.log('[fallback] No tool results found; using generic message');
+          responseText = 'No current-session evidence available. The model returned an empty response and no tool results were observed. Please try again or rephrase your request.';
+          console.log('[fallback] No tool results found; using evidence-safe generic message');
         }
       }
       console.log('Final response text:', responseText);
@@ -693,7 +711,7 @@ export default function App() {
       />
 
       {showPI && <PersonalIntelligencePopup onClose={() => setShowPI(false)} />}
-      {showSettings && <Settings onClose={() => setShowSettings(false)} settings={settings} onUpdateSettings={handleUpdateSettings} />}
+      {showSettings && <Settings onClose={() => { setShowSettings(false); if (window.location.hash === '#settings') history.replaceState(null, '', window.location.pathname + window.location.search); }} settings={settings} onUpdateSettings={handleUpdateSettings} />}
       {showGems && <GemsRegistry onClose={() => setShowGems(false)} />}
       {showSchedule && <ScheduledActions onClose={() => setShowSchedule(false)} onRunPrompt={handleSendMessage} />}
       {showArtifacts && <ArtifactLibrary onClose={() => setShowArtifacts(false)} onOpenArtifact={(artifact) => { setActiveArtifact(artifact); setShowArtifacts(false); }} />}

@@ -357,13 +357,13 @@ export function Sidebar({
             <LinkIcon size={16} className="shrink-0 text-gray-400" />
             <span className={drawerClass}>Integrations</span>
           </button>
+          <a href="#settings" onClick={() => { onOpenSettings(); window.dispatchEvent(new Event('gemini-open-settings')); }} title="Settings" className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c]">
+            <Settings size={16} className="shrink-0 text-gray-400" />
+            <span className={drawerClass}>Settings</span>
+          </a>
           <div className={`${drawerClass} px-3 py-2`}>
             <CostBadge />
           </div>
-          <button onClick={onOpenSettings} title="Settings" className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c]">
-            <Settings size={16} className="shrink-0 text-gray-400" />
-            <span className={drawerClass}>Settings</span>
-          </button>
         </div>
       </div>
     </aside>
