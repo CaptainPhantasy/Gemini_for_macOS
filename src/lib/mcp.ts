@@ -81,7 +81,8 @@ export function validateCommand(command: string): string | null {
   return null;
 }
 
-import { McpServerConfig } from '../types';
+import { DirectoryLockSettings, McpServerConfig } from '../types';
+import { getDirectoryLockViolation } from './directory-lock';
 
 export interface ToolDefinition {
   name: string;
@@ -106,6 +107,7 @@ export class MCPClient {
   private messageId = 0;
   private pendingRequests = new Map<number, { resolve: (value: unknown) => void; reject: (reason?: unknown) => void }>();
   private permissionHandler: ((action: string, path: string) => Promise<boolean>) | null = null;
+  private directoryLock: DirectoryLockSettings = { enabled: false, rootPath: '' };
   private serverConfigs: McpServerConfig[] = [];
   private isConnected = false;
   private tools: ToolDefinition[] = [];
@@ -134,6 +136,10 @@ export class MCPClient {
 
   setPermissionHandler(handler: (action: string, path: string) => Promise<boolean>) {
     this.permissionHandler = handler;
+  }
+
+  setDirectoryLock(lock: DirectoryLockSettings | undefined) {
+    this.directoryLock = lock ?? { enabled: false, rootPath: '' };
   }
 
   async updateServers(configs: McpServerConfig[]): Promise<void> {
@@ -390,7 +396,15 @@ export class MCPClient {
         }
       }
     }
+    const lockViolation = getDirectoryLockViolation(args, this.directoryLock);
+    if (lockViolation) {
+      throw new Error(`[directory-lock] ${lockViolation}`);
+    }
+
     if (action === 'EXECUTE') {
+      if (this.directoryLock.enabled && this.directoryLock.rootPath.trim()) {
+        throw new Error(`[directory-lock] Shell/process execution is disabled while locked to "${this.directoryLock.rootPath}".`);
+      }
       const commandArg = args.command as string | undefined;
       if (commandArg) {
         const cmdError = validateCommand(commandArg);

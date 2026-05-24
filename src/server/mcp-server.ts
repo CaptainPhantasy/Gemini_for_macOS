@@ -379,6 +379,7 @@ class MCPServer {
     setMcpContext({
       isDesktopCommanderReady: () => this.desktopCommander.isReady(),
       getDesktopCommanderToolCount: () => this.desktopCommander.getTools().length,
+      getDesktopCommanderTools: () => this.desktopCommander.getTools(),
       getSseClients: () => this.sseClients,
       callTool: (name, args) => this.callTool(name, args),
       detectLocalMcpServers: () => this.detectLocalMcpServers(),
@@ -429,6 +430,21 @@ class MCPServer {
     this.app.use(express.json());
     this.app.use(express.text({ limit: '100mb' }));
 
+    // CORS for frontend requests. This must be registered before routes so
+    // GEMINI can auto-detect and configure MCP from the browser UI.
+    this.app.use((req, res, next) => {
+      const origin = req.headers.origin;
+      if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1):13000$/.test(origin)) {
+        res.header('Access-Control-Allow-Origin', origin || 'http://localhost:13000');
+      }
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type');
+      if (req.method === 'OPTIONS') {
+        return res.sendStatus(204);
+      }
+      next();
+    });
+
     // ── Mount extracted API routes ──────────────────────────────────────
     // All client-facing FLUM endpoints are now in src/lib/api-routes.ts,
     // keeping this module focused on MCP WebSocket proxy handling.
@@ -439,16 +455,6 @@ class MCPServer {
       res.status(400).send('Use WebSocket');
     });
 
-    // CORS for frontend requests
-    this.app.use((req, res, next) => {
-      res.header('Access-Control-Allow-Origin', 'http://localhost:13000');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type');
-      if (req.method === 'OPTIONS') {
-        return res.sendStatus(204);
-      }
-      next();
-    });
   }
 
   private async detectLocalMcpServers(): Promise<Array<{
@@ -516,7 +522,7 @@ class MCPServer {
   }
 
   public start(): void {
-    const server = this.app.listen(this.port, '0.0.0.0', () => {
+    const server = this.app.listen(this.port, '127.0.0.1', () => {
       console.log(`✓ GEMINI MCP Server running on port ${this.port}`);
     });
 
