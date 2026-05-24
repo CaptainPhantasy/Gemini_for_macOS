@@ -77,6 +77,36 @@ export type ModelSettings = {
   liveAudio: string;
 };
 
+export type GeminiModelApiModel = {
+  name: string;
+  displayName?: string;
+  description?: string;
+  version?: string;
+  supportedGenerationMethods?: string[];
+  inputTokenLimit?: number;
+  outputTokenLimit?: number;
+};
+
+export type GeminiAvailableModel = {
+  id: string;
+  name: string;
+  displayName: string;
+  description?: string;
+  version?: string;
+  supportedGenerationMethods: string[];
+  inputTokenLimit?: number;
+  outputTokenLimit?: number;
+};
+
+export type AvailableModelCatalog = {
+  fetchedAt: string;
+  source: 'gemini-api';
+  endpoint: string;
+  rawCount: number;
+  models: GeminiAvailableModel[];
+  byCapability: Record<keyof ModelSettings, string[]>;
+};
+
 export type CostSettings = {
   gcpProjectId: string;
   billingAccountId: string;
@@ -96,9 +126,15 @@ export const DEFAULT_MODEL_SETTINGS: ModelSettings = {
   liveAudio: 'gemini-3.1-flash-live-preview',
 };
 
+export type DirectoryLockSettings = {
+  enabled: boolean;
+  rootPath: string;
+};
+
 export type AppSettings = {
   theme: 'light' | 'dark' | 'system' | 'gemini';
   autonomyMode: AutonomyMode;
+  directoryLock?: DirectoryLockSettings;
   googleDriveEnabled: boolean;
   notebookLmEnabled: boolean;
   searchEnabled: boolean;
@@ -107,6 +143,7 @@ export type AppSettings = {
   gcpOAuthClientId: string;
   autoSyncArtifacts: boolean;
   models?: ModelSettings;
+  availableModelCatalog?: AvailableModelCatalog;
   cost?: CostSettings;
   thinkingBudgets?: {
     text: number;

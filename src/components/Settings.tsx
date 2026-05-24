@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { X, Download, Shield, ShieldAlert, Zap, Lock, Globe, HardDrive, BookOpen, Radar } from 'lucide-react';
+import { X, Download, Shield, ShieldAlert, Zap, Lock, Globe, HardDrive, BookOpen, Radar, RefreshCw } from 'lucide-react';
 import { backup } from '../lib/backup';
 import { AppSettings, AutonomyMode, ModelSettings, DEFAULT_MODEL_SETTINGS } from '../types';
-import { MODEL_CATALOG, DEFAULT_MODEL_IDS } from '../lib/model-catalog';
+import { DEFAULT_MODEL_IDS } from '../lib/model-catalog';
+import { fetchAvailableGeminiModels, getModelOptionsForCapability, getRecommendedModelChanges } from '../lib/model-refresh';
 import { costLedger, type LedgerEntry } from '../lib/cost-ledger';
 import { fetchProjectBillingInfo } from '../lib/cloud-billing';
 
@@ -29,6 +30,11 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
   const [apiKeyDraft, setApiKeyDraft] = useState(settings.geminiApiKey || '');
   const [clientIdDraft, setClientIdDraft] = useState(settings.gcpOAuthClientId || '');
   const [apiSaved, setApiSaved] = useState(false);
+  const [modelRefreshing, setModelRefreshing] = useState(false);
+  const [modelRefreshStatus, setModelRefreshStatus] = useState<string | null>(null);
+  const [modelRefreshError, setModelRefreshError] = useState<string | null>(null);
+  const [showRecommendedPreview, setShowRecommendedPreview] = useState(false);
+  const [modelApplyStatus, setModelApplyStatus] = useState<string | null>(null);
 
   const handleSaveApiConfig = () => {
     onUpdateSettings({ ...settings, geminiApiKey: apiKeyDraft, gcpOAuthClientId: clientIdDraft });
@@ -41,12 +47,46 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
   };
 
   const currentModels: ModelSettings = { ...DEFAULT_MODEL_SETTINGS, ...(settings.models ?? {}) };
+  const recommendedModelChanges = getRecommendedModelChanges(currentModels, settings.availableModelCatalog);
 
   const updateModel = (capability: keyof ModelSettings, modelId: string) => {
+    setShowRecommendedPreview(false);
     onUpdateSettings({
       ...settings,
       models: { ...currentModels, [capability]: modelId },
     });
+  };
+
+  const handleRefreshGeminiModels = async () => {
+    setModelRefreshing(true);
+    setModelRefreshError(null);
+    setModelRefreshStatus(null);
+    setModelApplyStatus(null);
+    setShowRecommendedPreview(false);
+    try {
+      const catalog = await fetchAvailableGeminiModels(settings.geminiApiKey);
+      onUpdateSettings({ ...settings, availableModelCatalog: catalog });
+      setModelRefreshStatus(`Fetched ${catalog.models.length} available model records from Google.`);
+    } catch (err) {
+      setModelRefreshError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setModelRefreshing(false);
+    }
+  };
+
+  const handleApplyRecommendedModels = () => {
+    if (recommendedModelChanges.length === 0) {
+      setModelApplyStatus('Current selections already match the recommended defaults.');
+      setShowRecommendedPreview(false);
+      return;
+    }
+    const nextModels = { ...currentModels };
+    for (const change of recommendedModelChanges) {
+      nextModels[change.capability] = change.to;
+    }
+    onUpdateSettings({ ...settings, models: nextModels });
+    setModelApplyStatus(`Applied ${recommendedModelChanges.length} recommended model default${recommendedModelChanges.length === 1 ? '' : 's'}.`);
+    setShowRecommendedPreview(false);
   };
 
   const updateThinkingBudget = (kind: 'text' | 'vision', value: number) => {
@@ -109,12 +149,60 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
   }
   const [detectedServers, setDetectedServers] = useState<DetectedServer[]>([]);
   const [detecting, setDetecting] = useState(false);
+  const [mcpStatus, setMcpStatus] = useState<{ connected: boolean; toolCount: number; url: string } | null>(null);
+  const [mcpStatusError, setMcpStatusError] = useState<string | null>(null);
+  const [desktopCommanderConfig, setDesktopCommanderConfig] = useState<Record<string, any> | null>(null);
+  const [allowedDirectoriesDraft, setAllowedDirectoriesDraft] = useState('');
+  const MCP_API_BASE = 'http://127.0.0.1:13001';
+
+  const refreshMcpStatus = async () => {
+    setMcpStatusError(null);
+    try {
+      const [diagnosticResp, configResp] = await Promise.all([
+        fetch(`${MCP_API_BASE}/api/diagnostic?include_advanced=true`),
+        fetch(`${MCP_API_BASE}/api/desktop-commander/config`),
+      ]);
+      const diagnostic = await diagnosticResp.json();
+      const configPayload = await configResp.json();
+      const mcp = diagnostic.advanced?.mcp_server;
+      const config = configPayload.advanced?.config ?? null;
+      setMcpStatus({
+        connected: mcp?.status === 'connected',
+        toolCount: Number(mcp?.tools_available ?? 0),
+        url: mcp?.url ?? 'ws://127.0.0.1:13001/mcp',
+      });
+      setDesktopCommanderConfig(config);
+      setAllowedDirectoriesDraft(Array.isArray(config?.allowedDirectories) ? config.allowedDirectories.join('\n') : '');
+    } catch (err) {
+      setMcpStatus(null);
+      setDesktopCommanderConfig(null);
+      setMcpStatusError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleSaveAllowedDirectories = async () => {
+    const value = allowedDirectoriesDraft
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean);
+    const resp = await fetch(`${MCP_API_BASE}/api/desktop-commander/config`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'allowedDirectories', value }),
+    });
+    if (!resp.ok) throw new Error(`Failed to update allowedDirectories: HTTP ${resp.status}`);
+    await refreshMcpStatus();
+  };
+
+  useEffect(() => {
+    refreshMcpStatus().catch(console.error);
+  }, []);
 
   const handleDetectMcp = async () => {
     setDetecting(true);
     setDetectedServers([]);
     try {
-      const resp = await fetch('http://localhost:13001/detect-mcp');
+      const resp = await fetch(`${MCP_API_BASE}/detect-mcp`);
       const data = await resp.json();
       setDetectedServers(data.servers || []);
     } catch (err) {
@@ -287,6 +375,43 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
             </div>
           </section>
 
+          {/* Directory Lock Section */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">Directory Lock</h3>
+            <div className="space-y-3 p-4 bg-gray-50 dark:bg-[#131314] rounded-xl border border-gray-100 dark:border-gray-800">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="font-medium text-gray-900 dark:text-white">Force Gemini to stay inside one folder</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    When enabled, local MCP file operations outside this root are blocked before they reach Desktop Commander. Shell/process execution is also blocked while locked.
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer mt-1">
+                  <input
+                    type="checkbox"
+                    checked={!!settings.directoryLock?.enabled}
+                    onChange={(e) => updateSetting('directoryLock', { enabled: e.target.checked, rootPath: settings.directoryLock?.rootPath || '' })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Locked root path</label>
+                <input
+                  type="text"
+                  value={settings.directoryLock?.rootPath || ''}
+                  onChange={(e) => updateSetting('directoryLock', { enabled: !!settings.directoryLock?.enabled, rootPath: e.target.value })}
+                  placeholder="/Volumes/SanDisk1Tb/Your Project"
+                  className="w-full px-3 py-2 text-sm bg-white dark:bg-[#2a2b2c] border border-gray-200 dark:border-gray-700 rounded-lg"
+                />
+              </div>
+              {settings.directoryLock?.enabled && !settings.directoryLock.rootPath.trim() && (
+                <div className="text-xs text-amber-600 dark:text-amber-400">Directory lock is enabled but no root path is set.</div>
+              )}
+            </div>
+          </section>
+
           {/* Integrations Section */}
           <section>
             <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">Google Ecosystem (Live)</h3>
@@ -357,6 +482,50 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
           {/* MCP Servers Section */}
           <section>
             <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">MCP Servers</h3>
+            <div className="mb-4 p-4 bg-gray-50 dark:bg-[#131314] rounded-xl border border-gray-100 dark:border-gray-800 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-medium text-gray-900 dark:text-white">Desktop Commander Status</div>
+                  <div className="text-xs text-gray-500">
+                    {mcpStatus
+                      ? `${mcpStatus.connected ? 'Connected' : 'Disconnected'} · ${mcpStatus.toolCount} tools · ${mcpStatus.url}`
+                      : mcpStatusError ? `Detection failed: ${mcpStatusError}` : 'Not checked yet'}
+                  </div>
+                </div>
+                <button
+                  onClick={() => refreshMcpStatus().catch(console.error)}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  Refresh
+                </button>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Desktop Commander allowed directories</label>
+                <textarea
+                  value={allowedDirectoriesDraft}
+                  onChange={(e) => setAllowedDirectoriesDraft(e.target.value)}
+                  placeholder="One absolute path per line. Empty means full filesystem access in Desktop Commander."
+                  rows={4}
+                  className="w-full px-3 py-2 text-sm bg-white dark:bg-[#2a2b2c] border border-gray-200 dark:border-gray-700 rounded-lg font-mono"
+                />
+                <div className="flex items-center justify-between mt-2 gap-3">
+                  <div className="text-xs text-gray-500">
+                    You decide Desktop Commander privileges. The directory lock above is an additional GEMINI-side guardrail.
+                  </div>
+                  <button
+                    onClick={() => handleSaveAllowedDirectories().catch((err) => setMcpStatusError(err instanceof Error ? err.message : String(err)))}
+                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-600 text-white hover:bg-purple-700"
+                  >
+                    Save Privileges
+                  </button>
+                </div>
+                {desktopCommanderConfig && (
+                  <div className="mt-2 text-[11px] text-gray-500">
+                    Read limit: {String(desktopCommanderConfig.fileReadLineLimit ?? 'default')} · Write limit: {String(desktopCommanderConfig.fileWriteLineLimit ?? 'default')} · Telemetry: {String(desktopCommanderConfig.telemetryEnabled ?? 'unknown')}
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="space-y-4">
               {settings.mcpServers?.map((server, index) => (
                 <div key={server.id} className="p-4 bg-gray-50 dark:bg-[#131314] rounded-xl border border-gray-100 dark:border-gray-800">
@@ -526,11 +695,89 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
           <section>
             <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">Models</h3>
             <div className="space-y-4">
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-900/30 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-gray-900 dark:text-white">Available Gemini model catalog</div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Manual refresh sends a model-list request to Google using the saved Gemini API key. It stores a timestamped catalog and updates dropdown choices without changing your current model selections.
+                    </p>
+                    {settings.availableModelCatalog ? (
+                      <p className="text-xs text-gray-500 mt-2">
+                        Last refreshed {new Date(settings.availableModelCatalog.fetchedAt).toLocaleString()} · {settings.availableModelCatalog.models.length} usable records from {settings.availableModelCatalog.rawCount} returned models.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-2">No fetched catalog yet. Curated fallback defaults are still available.</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleRefreshGeminiModels().catch(console.error)}
+                    disabled={modelRefreshing || !settings.geminiApiKey.trim()}
+                    className="shrink-0 px-3 py-2 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    title={!settings.geminiApiKey.trim() ? 'Save a Gemini API key first.' : undefined}
+                  >
+                    <RefreshCw size={14} className={modelRefreshing ? 'animate-spin' : ''} />
+                    {modelRefreshing ? 'Refreshing…' : 'Refresh available models'}
+                  </button>
+                </div>
+                {!settings.geminiApiKey.trim() && (
+                  <div className="text-xs text-amber-700 dark:text-amber-300">Save a Gemini API key before refreshing the live model catalog.</div>
+                )}
+                {modelRefreshStatus && <div className="text-xs text-green-700 dark:text-green-300">{modelRefreshStatus}</div>}
+                {modelRefreshError && <div className="text-xs text-red-700 dark:text-red-300">{modelRefreshError}</div>}
+                {modelApplyStatus && <div className="text-xs text-green-700 dark:text-green-300">{modelApplyStatus}</div>}
+                <div className="border-t border-blue-100 dark:border-blue-900/40 pt-3">
+                  <button
+                    onClick={() => {
+                      setModelApplyStatus(null);
+                      setShowRecommendedPreview(true);
+                    }}
+                    disabled={recommendedModelChanges.length === 0}
+                    className="px-3 py-2 text-xs font-medium rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Apply recommended defaults…
+                  </button>
+                  <p className="text-xs text-gray-500 mt-2">
+                    This is separate from refresh. It previews exact model changes before modifying selections.
+                  </p>
+                  {showRecommendedPreview && (
+                    <div className="mt-3 p-3 bg-white dark:bg-[#1e1f20] rounded-lg border border-blue-100 dark:border-blue-900/40 space-y-3">
+                      <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">Recommended model changes</div>
+                      {recommendedModelChanges.length > 0 ? (
+                        <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
+                          {recommendedModelChanges.map(change => (
+                            <li key={change.capability}>
+                              <span className="font-medium">{MODEL_CAPABILITY_LABELS[change.capability]}:</span> {change.from || '(empty)'} → {change.to}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="text-xs text-gray-500">Current selections already match the recommended defaults.</div>
+                      )}
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => setShowRecommendedPreview(false)}
+                          className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleApplyRecommendedModels}
+                          disabled={recommendedModelChanges.length === 0}
+                          className="px-3 py-1.5 text-xs rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                        >
+                          Confirm apply recommended defaults
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {(Object.keys(MODEL_CAPABILITY_LABELS) as (keyof ModelSettings)[]).map((capability) => {
-                const catalogKey = capability === 'textFallback' ? 'text' : capability;
-                const options = (MODEL_CATALOG as Record<string, readonly { id: string; label: string }[]>)[catalogKey] ?? [];
                 const currentValue = currentModels[capability] ?? DEFAULT_MODEL_IDS[capability as keyof typeof DEFAULT_MODEL_IDS];
-                const isCustom = !options.some((opt) => opt.id === currentValue);
+                const options = getModelOptionsForCapability(capability, currentValue, settings.availableModelCatalog);
+                const isCustom = !currentValue || !options.some((opt) => opt.id === currentValue);
                 const selectValue = isCustom ? CUSTOM_MODEL_SENTINEL : currentValue;
                 return (
                   <div key={capability}>
@@ -550,7 +797,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                       className="w-full px-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-100 dark:border-gray-800 rounded-lg text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       {options.map((opt) => (
-                        <option key={opt.id} value={opt.id}>
+                        <option key={`${capability}-${opt.id}-${opt.source}`} value={opt.id}>
                           {opt.label}
                         </option>
                       ))}
