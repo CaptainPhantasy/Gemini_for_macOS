@@ -31,6 +31,7 @@ import { windowState } from "./lib/windowState";
 import { costLedger, PRICING } from "./lib/cost-ledger";
 import { logger } from "./lib/logger";
 import { generateWithFailover } from './lib/generation-wrapper';
+import { withGeminiContextCache } from './lib/context-cache';
 import { selectModel } from './lib/model-orchestrator';
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { OfflineIndicator } from "./components/OfflineIndicator";
@@ -129,10 +130,17 @@ export default function App() {
       const loadedThreads = storage.getThreads();
       setThreads([...loadedThreads]);
       if (loadedThreads.length > 0) {
-        setActiveThreadId(loadedThreads[0].id);
-      } else {
-        handleNewThread();
+        // Restore the last active thread from window state, falling back to
+        // the most recently updated thread if the saved ID no longer exists.
+        const saved = windowState.load();
+        const lastId = saved.activeThreadId as string | undefined;
+        const match = lastId ? loadedThreads.find(t => t.id === lastId) : null;
+        const best = match
+          ? match
+          : [...loadedThreads].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        setActiveThreadId(best.id);
       }
+
     };
     initStorage();
   }, []);
@@ -157,8 +165,11 @@ export default function App() {
       document.documentElement.classList.add('dark', 'theme-gemini');
     }
     
-    windowState.save({ theme: theme as 'light' | 'dark' | 'system' | 'gemini' });
-  }, [theme]);
+    windowState.save({
+      theme: theme as 'light' | 'dark' | 'system' | 'gemini',
+      activeThreadId,
+    });
+  }, [theme, activeThreadId]);
 
   const handleUpdateSettings = async (newSettings: AppSettings) => {
     setSettings(newSettings);
@@ -267,7 +278,16 @@ export default function App() {
   };
 
   const handleSendMessage = async (content: string, _type?: string, attachment?: { dataUri: string; mimeType: string; name: string }) => {
-    if (!activeThread) return;
+    const threadForSend = activeThread ?? {
+      id: uuidv4(),
+      title: 'New Chat',
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    if (!activeThread) {
+      setActiveThreadId(threadForSend.id);
+    }
     setIsLoading(true);
 
     const userMsg: Message = {
@@ -277,12 +297,12 @@ export default function App() {
       timestamp: Date.now()
     };
 
-    const updatedMessages = [...activeThread.messages, userMsg];
+    const updatedMessages = [...threadForSend.messages, userMsg];
     
     const updatedThread = {
-      ...activeThread,
+      ...threadForSend,
       messages: updatedMessages,
-      title: activeThread.messages.length === 0 ? content.slice(0, 30) + '...' : activeThread.title,
+      title: threadForSend.messages.length === 0 ? content.slice(0, 30) + '...' : threadForSend.title,
       updatedAt: Date.now()
     };
 
@@ -297,7 +317,7 @@ export default function App() {
       // Gem injection — if the active thread has a Gem assigned, prepend its
       // systemInstruction so the model adopts the Gem's persona/instructions.
       const gems = storage.getGems();
-      const activeGem = activeThread.gemId ? gems.find(g => g.id === activeThread.gemId) : null;
+      const activeGem = threadForSend.gemId ? gems.find(g => g.id === threadForSend.gemId) : null;
 
       // Tool-aware system prompt — teaches the model about Desktop Commander MCP
       // capabilities, its persistent memory directory, and the Tool:/Args: protocol
@@ -363,16 +383,18 @@ export default function App() {
         // Wrap the generation call with automatic retry and model fallback.
         // If the primary model fails with a transient error, retry with
         // exponential backoff. If retries exhaust, fall back to textFallback.
+        const generationConfig = await withGeminiContextCache(ai, selectedModel, {
+          systemInstruction: systemInstruction.trim() ? systemInstruction : undefined,
+          thinkingConfig,
+          tools: geminiTools.length > 0 ? geminiTools : undefined,
+        });
+
         const result = await generateWithFailover({
           ai,
           model: selectedModel,
           fallbackModel: settings.models?.textFallback,
           contents: workingContents as any,
-          config: {
-            systemInstruction: systemInstruction.trim() ? systemInstruction : undefined,
-            thinkingConfig,
-            tools: geminiTools.length > 0 ? geminiTools : undefined,
-          },
+          config: generationConfig,
         });
         response = result.response;
 
@@ -555,7 +577,7 @@ export default function App() {
       // stale closure overwrites. Any external action (cron, edit, pin) that
       // modified the thread during the async generation window would otherwise
       // be wiped out by the captured `updatedThread` reference.
-      const currentThread = storage.getThreads().find(t => t.id === activeThreadId) || updatedThread;
+      const currentThread = storage.getThreads().find(t => t.id === threadForSend.id) || updatedThread;
       const finalThread = {
         ...currentThread,
         messages: [...currentThread.messages, modelMsg],

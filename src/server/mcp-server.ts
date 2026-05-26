@@ -9,6 +9,7 @@
  * risk. If the MCP proxy loop locks up, the REST API remains responsive.
  */
 
+import 'dotenv/config';
 import express from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
 import { promises as fs } from 'fs';
@@ -17,6 +18,7 @@ import { promisify } from 'util';
 import path from 'path';
 import os from 'os';
 import apiRoutes, { setMcpContext, type McpContext } from '../lib/api-routes';
+import { dispatchJules } from './jules-agent';
 
 const execAsync = promisify(exec);
 
@@ -189,6 +191,140 @@ class DesktopCommanderSubprocess {
   }
 }
 
+// ── Generic stdio MCP Client ───────────────────────────────────────────
+
+class StdioMcpClient {
+  private proc: ChildProcess | null = null;
+  private messageId = 0;
+  private pendingRequests = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private initialized = false;
+  private toolCache: ToolDefinition[] = [];
+  private initPromise: Promise<void> | null = null;
+
+  constructor(
+    private name: string,
+    private command: string,
+    private args: string[] = [],
+    private env: Record<string, string> = {},
+  ) {}
+
+  async start(): Promise<void> {
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this._doStart();
+    return this.initPromise;
+  }
+
+  private async _doStart(): Promise<void> {
+    try {
+      this.proc = spawn(this.command, this.args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, ...this.env },
+      });
+
+      this.proc.stdout?.setEncoding('utf8');
+      this.proc.stderr?.on('data', (data) => {
+        const msg = data.toString().trim();
+        if (msg) console.log(`[MCP:${this.name}]`, msg);
+      });
+
+      this.proc.on('error', (err) => {
+        console.error(`[MCP:${this.name}] Process error:`, err);
+      });
+
+      this.proc.on('exit', (code) => {
+        console.log(`[MCP:${this.name}] Process exited with code ${code}`);
+        this.proc = null;
+        this.initialized = false;
+      });
+
+      let buffer = '';
+      this.proc.stdout?.on('data', (data: string) => {
+        buffer += data;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const resp = JSON.parse(line) as DCResponse;
+            if (resp.id && this.pendingRequests.has(resp.id)) {
+              const { resolve, reject } = this.pendingRequests.get(resp.id)!;
+              this.pendingRequests.delete(resp.id);
+              if (resp.error) reject(new Error(resp.error.message));
+              else resolve(resp.result);
+            }
+          } catch {
+            console.warn(`[MCP:${this.name}] Ignoring non-JSON stdout:`, line.slice(0, 100));
+          }
+        }
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 250));
+
+      try {
+        await this.sendRequest('initialize', {
+          protocolVersion: '2024-11-05',
+          capabilities: { tools: {}, resources: {}, prompts: {} },
+          clientInfo: { name: 'GEMINI-for-MacOS', version: '1.0.0' },
+        });
+        this.sendNotification('notifications/initialized', {});
+      } catch (e) {
+        console.error(`[MCP:${this.name}] initialize failed:`, e);
+      }
+
+      const toolResult = (await this.sendRequest('tools/list', {})) as { tools: ToolDefinition[] };
+      this.toolCache = toolResult.tools || [];
+      this.initialized = true;
+      console.log(`[MCP:${this.name}] Connected with ${this.toolCache.length} tools`);
+    } catch (error) {
+      console.error(`[MCP:${this.name}] Failed to start:`, error);
+    }
+  }
+
+  private sendNotification(method: string, params?: Record<string, unknown>): void {
+    if (!this.proc?.stdin) return;
+    this.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n');
+  }
+
+  private sendRequest(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      if (!this.proc || !this.proc.stdin) {
+        reject(new Error(`${this.name} not running`));
+        return;
+      }
+
+      const id = ++this.messageId;
+      this.pendingRequests.set(id, { resolve, reject });
+      this.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+
+      setTimeout(() => {
+        if (this.pendingRequests.has(id)) {
+          this.pendingRequests.delete(id);
+          reject(new Error(`${this.name} request timeout`));
+        }
+      }, 30000);
+    });
+  }
+
+  getName(): string {
+    return this.name;
+  }
+
+  getTools(): ToolDefinition[] {
+    return this.toolCache;
+  }
+
+  isReady(): boolean {
+    return this.initialized && this.proc !== null;
+  }
+
+  async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+    if (!this.isReady()) throw new Error(`${this.name} not connected`);
+    const result = await this.sendRequest('tools/call', { name, arguments: args });
+    if (result && typeof result === 'object' && 'content' in result) return result;
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+  }
+}
+
 // ── Streamable HTTP MCP Client ─────────────────────────────────────────
 // Connects to remote MCP servers using the Streamable HTTP transport
 // (POST-based with SSE responses). This is the transport used by
@@ -315,6 +451,10 @@ class SSEMcpClient {
     throw new Error(`[SSE:${this.name}] No response found for request ${expectedId}`);
   }
 
+  getName(): string {
+    return this.name;
+  }
+
   getTools(): ToolDefinition[] {
     return this.toolCache;
   }
@@ -364,13 +504,21 @@ class MCPServer {
   private wss: WebSocketServer | null = null;
   private port = 13001;
   private desktopCommander = new DesktopCommanderSubprocess();
+  private stdioClients: StdioMcpClient[] = [];
   private sseClients: SSEMcpClient[] = [];
+  private stdioRegistry = new Map<string, { command: string; args: string[]; env: Record<string, string> }>();
 
   constructor() {
     this.setupExpress();
     // Start Desktop Commander subprocess
     this.desktopCommander.start().catch((err) => {
       console.error('[MCP] Desktop Commander startup failed:', err);
+    });
+    // Load project-local MCP registry without starting those servers.
+    // Servers are spawned lazily only when list_mcp_server_tools/call_mcp_tool
+    // targets a specific server.
+    this.loadProjectMcpRegistry().catch((err) => {
+      console.error('[MCP] Project MCP registry load failed:', err);
     });
     // Auto-start SSE MCP servers from environment config
     this.startSSEServers();
@@ -380,11 +528,57 @@ class MCPServer {
       isDesktopCommanderReady: () => this.desktopCommander.isReady(),
       getDesktopCommanderToolCount: () => this.desktopCommander.getTools().length,
       getDesktopCommanderTools: () => this.desktopCommander.getTools(),
-      getSseClients: () => this.sseClients,
+      getGatewayTools: () => this.getGatewayTools(),
+      getSseClients: () => [...this.stdioClients, ...this.sseClients],
       callTool: (name, args) => this.callTool(name, args),
       detectLocalMcpServers: () => this.detectLocalMcpServers(),
       addSSEServer: (name, url) => this.addSSEServer(name, url),
     });
+  }
+
+  private async loadProjectMcpRegistry(): Promise<void> {
+    const configPath = path.join(process.cwd(), '.mcp.json');
+
+    try {
+      const raw = await fs.readFile(configPath, 'utf-8');
+      const config = JSON.parse(raw) as {
+        mcpServers?: Record<string, {
+          command?: string;
+          args?: string[];
+          env?: Record<string, string>;
+          enabled?: boolean;
+          type?: string;
+          url?: string;
+        }>;
+      };
+
+      const servers = config.mcpServers || {};
+      for (const [name, cfg] of Object.entries(servers)) {
+        if (cfg.enabled === false || typeof cfg.command !== 'string') continue;
+        this.stdioRegistry.set(name, {
+          command: cfg.command,
+          args: cfg.args || [],
+          env: cfg.env || {},
+        });
+      }
+
+      console.log(`[MCP] Project .mcp.json registry loaded: ${this.stdioRegistry.size} lazy stdio servers`);
+    } catch (error) {
+      console.warn(`[MCP] No project .mcp.json registry loaded: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async ensureStdioClient(name: string): Promise<StdioMcpClient> {
+    const existing = this.stdioClients.find(client => client.getName() === name);
+    if (existing) return existing;
+
+    const cfg = this.stdioRegistry.get(name);
+    if (!cfg) throw new Error(`Unknown MCP server '${name}'. Use list_mcp_servers first.`);
+
+    const client = new StdioMcpClient(name, cfg.command, cfg.args, cfg.env);
+    this.stdioClients.push(client);
+    await client.start();
+    return client;
   }
 
   private async startSSEServers(): Promise<void> {
@@ -417,6 +611,11 @@ class MCPServer {
   }
 
   async addSSEServer(name: string, url: string): Promise<{ tools: number; connected: boolean }> {
+    const existing = this.sseClients.find(client => client.getName() === name);
+    if (existing) {
+      return { tools: existing.getTools().length, connected: existing.isReady() };
+    }
+
     const client = new SSEMcpClient(name, url);
     this.sseClients.push(client);
     await client.start();
@@ -424,6 +623,35 @@ class MCPServer {
     const toolCount = client.getTools().length;
     console.log(`[MCP] SSE server '${name}': ${client.isReady() ? 'connected' : 'failed'} with ${toolCount} tools`);
     return { tools: toolCount, connected: client.isReady() };
+  }
+
+  private async configureServers(servers?: Array<{
+    name?: string;
+    id?: string;
+    type?: 'stdio' | 'websocket' | 'sse';
+    command?: string;
+    args?: string[];
+    url?: string;
+    enabled?: boolean;
+  }>): Promise<{ status: string; started: number }> {
+    if (!Array.isArray(servers)) return { status: 'ignored', started: 0 };
+
+    let started = 0;
+    for (const server of servers) {
+      if (server.enabled === false) continue;
+      const name = server.name || server.id;
+      if (!name) continue;
+
+      if (server.type === 'sse' && server.url) {
+        await this.addSSEServer(name, server.url);
+        started += 1;
+      } else if (server.type === 'stdio' && server.command) {
+        this.stdioRegistry.set(name, { command: server.command, args: server.args || [], env: {} });
+        started += 1;
+      }
+    }
+
+    return { status: 'configured', started };
   }
 
   private setupExpress() {
@@ -478,6 +706,7 @@ class MCPServer {
     }> = [];
 
     const configPaths = [
+      { file: path.join(process.cwd(), '.mcp.json'), source: 'GEMINI Harness (project)' },
       { file: path.join(home, '.gemini', 'settings.json'), source: 'Gemini CLI' },
       { file: path.join(home, '.claude', 'settings.json'), source: 'Claude Code (global)' },
       { file: path.join(home, '.claude', 'settings.local.json'), source: 'Claude Code (local)' },
@@ -580,7 +809,15 @@ class MCPServer {
 
         result = await this.callTool(toolName, args);
       } else if (method === 'mcp/configure_servers') {
-        result = { status: 'configured' };
+        result = await this.configureServers(params.servers as Array<{
+          name?: string;
+          id?: string;
+          type?: 'stdio' | 'websocket' | 'sse';
+          command?: string;
+          args?: string[];
+          url?: string;
+          enabled?: boolean;
+        }> | undefined);
       } else if (method === 'tools/list') {
         result = this.listTools();
       } else {
@@ -605,19 +842,43 @@ class MCPServer {
     }
   }
 
-  private getMergedTools(): ToolDefinition[] {
-    const allTools: ToolDefinition[] = [];
-    const dcTools = this.desktopCommander.getTools();
-    if (dcTools.length > 0) allTools.push(...dcTools);
-    for (const client of this.sseClients) {
-      if (client.isReady()) allTools.push(...client.getTools());
-    }
-    return allTools;
+  private getGatewayTools(): ToolDefinition[] {
+    return [
+      {
+        name: 'list_mcp_servers',
+        description: 'List project-local MCP servers available for lazy loading. Does not start any server.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'list_mcp_server_tools',
+        description: 'Lazy-load one named MCP server and return its tool schemas. Use before call_mcp_tool when you need a server-specific tool.',
+        inputSchema: {
+          type: 'object',
+          properties: { server: { type: 'string', description: 'MCP server name from list_mcp_servers' } },
+          required: ['server'],
+        },
+      },
+      {
+        name: 'call_mcp_tool',
+        description: 'Call a tool on one lazy-loaded project MCP server. The server starts on demand and remains cached for the session.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            server: { type: 'string', description: 'MCP server name from list_mcp_servers' },
+            tool: { type: 'string', description: 'Tool name exposed by that server' },
+            arguments: { type: 'object', description: 'Tool arguments object' },
+          },
+          required: ['server', 'tool'],
+        },
+      },
+    ];
   }
 
   private listTools() {
-    // Collect tools from all connected sources
-    const allTools: ToolDefinition[] = [];
+    // Keep native Gemini tool declarations small. The project MCP fleet is
+    // exposed through three gateway tools; individual MCP servers and their
+    // 147+ schemas are loaded only when requested.
+    const allTools: ToolDefinition[] = [...this.getGatewayTools()];
 
     // Desktop Commander tools (preferred)
     const dcTools = this.desktopCommander.getTools();
@@ -634,15 +895,36 @@ class MCPServer {
         allTools.push(...tools);
       }
     }
+    allTools.push({
+      name: 'dispatch_jules',
+      description: 'Dispatch Jules, a single-instance MiniMax software-engineering assistant for feature checks, code reviews, commit reviews, and Git Steward verification. Use when Douglas asks for Jules, when reviewing code/commits, or when checking what features Douglas needs today.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          mode: {
+            type: 'string',
+            enum: ['feature_check', 'code_review', 'commit_review', 'git_steward'],
+            description: 'Jules operating mode for this dispatch.',
+          },
+          task: {
+            type: 'string',
+            description: 'Specific task Jules should perform.',
+          },
+          repositoryContext: {
+            type: 'string',
+            description: 'Concrete repo evidence, diff summary, test output, or user context Jules should review.',
+          },
+        },
+        required: ['mode', 'task'],
+      },
+    });
 
-    if (allTools.length > 0) {
-      return { tools: allTools };
-    }
 
-    // Fallback while everything initializes
-    console.log('[MCP] Desktop Commander starting, using fallback tools');
-    return {
-      tools: [
+    if (this.desktopCommander.getTools().length === 0) {
+      // Fallback while Desktop Commander initializes. The lazy MCP gateway
+      // tools are already present, so the model can still inspect/load the
+      // project MCP fleet without receiving every server schema by default.
+      allTools.push(
         { name: 'read_file', description: 'Read a file from the local file system', inputSchema: { type: 'object', properties: { path: { type: 'string', description: 'File path to read' } }, required: ['path'] } },
         { name: 'write_file', description: 'Write content to a file on the local file system', inputSchema: { type: 'object', properties: { path: { type: 'string', description: 'File path to write' }, content: { type: 'string', description: 'Content to write' } }, required: ['path', 'content'] } },
         { name: 'list_directory', description: 'List files and directories in a path', inputSchema: { type: 'object', properties: { path: { type: 'string', description: 'Directory path to list' } }, required: ['path'] } },
@@ -659,11 +941,57 @@ class MCPServer {
         { name: 'kill_process', description: 'Terminate a process by PID', inputSchema: { type: 'object', properties: { pid: { type: 'number', description: 'Process ID to terminate' } }, required: ['pid'] } },
         { name: 'move_file', description: 'Move or rename files and directories', inputSchema: { type: 'object', properties: { source: { type: 'string' }, destination: { type: 'string' } }, required: ['source', 'destination'] } },
         { name: 'get_config', description: 'Get Desktop Commander configuration settings', inputSchema: { type: 'object', properties: {} } }
-      ]
-    };
+      );
+    }
+
+    return { tools: allTools };
   }
 
   private async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+    // Lazy MCP gateway tools. These keep the model's default tool context small
+    // and only load one project MCP server when explicitly requested.
+    if (name === 'list_mcp_servers') {
+      const servers = Array.from(this.stdioRegistry.keys()).map(server => {
+        const client = this.stdioClients.find(c => c.getName() === server);
+        return {
+          name: server,
+          loaded: !!client,
+          connected: client?.isReady() ?? false,
+          cachedToolCount: client?.getTools().length ?? 0,
+        };
+      });
+      return { content: [{ type: 'text', text: JSON.stringify({ servers }, null, 2) }] };
+    }
+
+    if (name === 'list_mcp_server_tools') {
+      const server = String(args.server || '');
+      const client = await this.ensureStdioClient(server);
+      return { content: [{ type: 'text', text: JSON.stringify({ server, tools: client.getTools() }, null, 2) }] };
+    }
+
+    if (name === 'call_mcp_tool') {
+      const server = String(args.server || '');
+      const tool = String(args.tool || '');
+      const toolArgs = (args.arguments && typeof args.arguments === 'object')
+        ? args.arguments as Record<string, unknown>
+        : {};
+      const client = await this.ensureStdioClient(server);
+      return client.callTool(tool, toolArgs);
+    }
+
+    if (name === 'dispatch_jules') {
+      const mode = String(args.mode || 'code_review');
+      if (!['feature_check', 'code_review', 'commit_review', 'git_steward'].includes(mode)) {
+        throw new Error(`Invalid Jules mode: ${mode}`);
+      }
+
+      const result = await dispatchJules({
+        mode: mode as 'feature_check' | 'code_review' | 'commit_review' | 'git_steward',
+        task: String(args.task || ''),
+        repositoryContext: typeof args.repositoryContext === 'string' ? args.repositoryContext : undefined,
+      });
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    }
     // Try Desktop Commander first if connected
     if (this.desktopCommander.isReady()) {
       const dcToolNames = this.desktopCommander.getTools().map(t => t.name);
@@ -674,6 +1002,23 @@ class MCPServer {
           return result;
         } catch (err) {
           console.warn(`[MCP] Desktop Commander tool '${name}' failed, using fallback:`, err);
+        }
+      }
+    }
+
+    // Try project-local stdio MCP clients
+    for (const client of this.stdioClients) {
+      if (client.isReady()) {
+        const toolNames = client.getTools().map(t => t.name);
+        if (toolNames.includes(name)) {
+          try {
+            const result = await client.callTool(name, args);
+            console.log(`[MCP] stdio client '${client.getName()}' executed: ${name}`);
+            return result;
+          } catch (err) {
+            console.warn(`[MCP] stdio client '${client.getName()}' tool '${name}' failed:`, err);
+            throw err;
+          }
         }
       }
     }

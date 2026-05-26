@@ -74,6 +74,7 @@ export interface McpContext {
   isDesktopCommanderReady: () => boolean;
   getDesktopCommanderToolCount: () => number;
   getDesktopCommanderTools: () => Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+  getGatewayTools: () => Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
   getSseClients: () => Array<{ isReady: () => boolean; getTools: () => Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> }>;
   callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>;
   detectLocalMcpServers: () => Promise<Array<{
@@ -165,8 +166,8 @@ router.get('/api/tools', async (_req, res) => {
   const ctx = requireContext();
   const startTime = Date.now();
 
-  // Merge tools from Desktop Commander + SSE clients.
-  const allTools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> = [];
+  // Merge lazy MCP gateway + Desktop Commander + already-loaded external clients.
+  const allTools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> = [...ctx.getGatewayTools()];
   if (ctx.isDesktopCommanderReady()) {
     allTools.push(...ctx.getDesktopCommanderTools());
   }
