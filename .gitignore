@@ -72,16 +72,21 @@ tmp/
 
 # ─── Agent/orchestration state (local-only) ──────────────
 .floyd/
-.gsd/STATE.md
-.gsd/gsd.db
-.gsd/auto.lock
+.gsd/
+
+# ─── Internal posture / IP — never publish to public remote ──
+CLAUDE.md
+docs/architecture/environment_profile.md
+docs/architecture/site-comparison.md
+docs/dogfood/
 
 # ─── Test/debug scripts (local-only) ─────────────────────
-test-oauth-persistence.mjs
-OAUTH_TEST_PROCEDURE.md
+scripts/debug/
+docs/setup/OAUTH_TEST_PROCEDURE.md
 public/storage-debug.html
 
 # ─── Verification docs (local-only, not shipped) ──────────
-ROADMAP_VERIFICATION_TESTS.md
+docs/reviews/ROADMAP_VERIFICATION_TESTS.md
+docs/reviews/REVIEW_DESKTOP_CORE_*.md
 Issues/
 SSOT/

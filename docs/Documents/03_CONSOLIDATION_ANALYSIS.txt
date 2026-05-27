@@ -1,0 +1,253 @@
+# HOOK DISTILLATION ANALYSIS
+
+Generated: 2026-04-12T15:38:11.117Z
+
+## Summary
+- Total Hook Files: 29
+- Total Hooks: 92
+- Consolidation Opportunities: 14
+- Estimated Final Count: 71
+- Estimated Reduction: 23%
+
+## Consolidation Groups (Safe to Merge)
+
+### 1. completion_fraud_runtime_test
+**Safety Score:** HIGH
+**Domain:** completion-fraud
+**Source Hooks (2):**
+  - env-var-completion-requires-runtime-test
+  - completion-without-user-interaction-test
+**Files Affected:** api-key-completion-verification.json, completion-fraud-prevention.json
+**Reason:** 2 hooks in completion-fraud domain - all detect related violations
+
+### 2. completion_fraud_completion_fraud
+**Safety Score:** HIGH
+**Domain:** completion-fraud
+**Source Hooks (2):**
+  - prevent-completion-fraud
+  - no-completion-fraud-missing-runtime-verification
+**Files Affected:** no-completion-fraud.json, no-completion-without-e2e-verification.json
+**Reason:** 2 hooks in completion-fraud domain - all detect related violations
+
+### 3. completion_fraud_tests_only
+**Safety Score:** HIGH
+**Domain:** completion-fraud
+**Source Hooks (3):**
+  - no-completion-fraud-unit-tests-only
+  - no-completion-fraud-security-fixes-untested
+  - security-fix-completion-requires-threat-test
+**Files Affected:** no-completion-without-e2e-verification.json, require-end-to-end-verification.json
+**Reason:** 3 hooks in completion-fraud domain - all detect related violations
+
+### 4. credentials_secrets_after_move
+**Safety Score:** HIGH
+**Domain:** credentials-secrets
+**Source Hooks (2):**
+  - secret-persistence-verify-after-move
+  - secret-persistence-verify-after-move
+**Files Affected:** instruction-override-violations.json, no-completion-fraud-security-fixes.json
+**Reason:** 2 hooks in credentials-secrets domain - all detect related violations
+
+### 5. credentials_secrets_with_secrets
+**Safety Score:** HIGH
+**Domain:** credentials-secrets
+**Source Hooks (2):**
+  - require-ask-for-file-with-secrets
+  - no-write-tool-for-secrets
+**Files Affected:** no-destructive-file-ops.json, sensitive-credential-tool-safety.json
+**Reason:** 2 hooks in credentials-secrets domain - all detect related violations
+
+### 6. dismissal_acknowledgment_revert_detection
+**Safety Score:** HIGH
+**Domain:** dismissal-acknowledgment
+**Source Hooks (2):**
+  - acknowledge-then-revert-detection
+  - correction-without-behavior-change
+**Files Affected:** no-dismissal-by-acknowledgment.json
+**Reason:** 2 hooks in dismissal-acknowledgment domain - all detect related violations
+
+### 7. instruction_override_immediate_block
+**Safety Score:** HIGH
+**Domain:** instruction-override
+**Source Hooks (2):**
+  - escalation-command-immediate-block
+  - block-instruction-override-with-urgency
+**Files Affected:** instruction-override-escalation-block.json, instruction-override-violations.json
+**Reason:** 2 hooks in instruction-override domain - all detect related violations
+
+### 8. file_operations_recursion_check
+**Safety Score:** HIGH
+**Domain:** file-operations
+**Source Hooks (2):**
+  - backup-recursion-check
+  - no-silent-backup-failures
+**Files Affected:** completion-fraud-prevention.json, no-pathological-backups.json
+**Reason:** 2 hooks in file-operations domain - all detect related violations
+
+### 9. error_handling_error_masking
+**Safety Score:** HIGH
+**Domain:** error-handling
+**Source Hooks (3):**
+  - no-silent-error-masking
+  - error-not-surfaced-to-user
+  - no-completion-without-error-visibility
+**Files Affected:** api-key-completion-verification.json, completion-fraud-prevention.json, no-completion-without-e2e-verification.json
+**Reason:** 3 hooks in error-handling domain - all detect related violations
+
+### 10. error_handling_scope_errors
+**Safety Score:** HIGH
+**Domain:** error-handling
+**Source Hooks (3):**
+  - block-outside-scope-errors
+  - block-audit-pass-with-errors
+  - block-commit-with-type-errors
+**Files Affected:** no-orphan-errors.json
+**Reason:** 3 hooks in error-handling domain - all detect related violations
+
+### 11. error_handling_in_initialization
+**Safety Score:** HIGH
+**Domain:** error-handling
+**Source Hooks (2):**
+  - no-silent-errors-in-initialization
+  - require-visible-error-boundaries
+**Files Affected:** no-silent-errors-critical-paths.json
+**Reason:** 2 hooks in error-handling domain - all detect related violations
+
+### 12. other_reflect_state
+**Safety Score:** HIGH
+**Domain:** other
+**Source Hooks (3):**
+  - git-history-must-reflect-state
+  - enforce-evidence-contracts
+  - api-initialization-requires-functional-test
+**Files Affected:** completion-fraud-prevention.json, enforce-evidence-contracts.json, require-end-to-end-verification.json
+**Reason:** 3 hooks in other domain - all detect related violations
+
+### 13. other_centric_ux
+**Safety Score:** HIGH
+**Domain:** other
+**Source Hooks (2):**
+  - enforce-human-centric-ux
+  - handoff-as-authority-when-flawed
+**Files Affected:** enforce-human-centric-ux.json, no-dismissal-by-acknowledgment.json
+**Reason:** 2 hooks in other domain - all detect related violations
+
+### 14. other_rf_directories
+**Safety Score:** HIGH
+**Domain:** other
+**Source Hooks (5):**
+  - block-rm-rf-directories
+  - block-apply-external-docs-without-package-check
+  - block-replace-working-code-without-runtime-test
+  - block-wrong-sdk-alias
+  - block-commit-placeholder-values
+**Files Affected:** no-destructive-delete.json, no-unverified-research.json, prevent-secret-loss-commits.json
+**Reason:** 5 hooks in other domain - all detect related violations
+
+## Hooks That Must Stay Separate
+
+### 1. Separate Hooks
+**Count:** 1
+**Reason:** Different event types, actions, or low pattern overlap - unsafe to merge
+**Hooks:**
+  - no-completion-without-live-test
+**Files:** no-untested-completion.json
+
+### 2. Separate Hooks
+**Count:** 7
+**Reason:** Different event types, actions, or low pattern overlap - unsafe to merge
+**Hooks:**
+  - api-key-env-injection-untested
+  - grep-cleanup-insufficient-for-env-vars
+  - env-var-completion-requires-key-present
+  - use-available-api-keys
+  - prevent-secret-loss-during-backup
+  - environment-variable-config-requires-verification
+  - env-file-bash-only
+**Files:** api-key-completion-verification.json, completion-fraud-prevention.json, no-untested-completion.json, prevent-secret-loss-commits.json, require-end-to-end-verification.json, sensitive-credential-tool-safety.json
+
+### 3. Separate Hooks
+**Count:** 3
+**Reason:** Different event types, actions, or low pattern overlap - unsafe to merge
+**Hooks:**
+  - acknowledgment-without-execution-guard
+  - detect-verbal-acknowledgment-without-execution
+  - block-preexisting-dismissal
+**Files:** instruction-override-escalation-block.json, instruction-override-violations.json, no-orphan-errors.json
+
+### 4. Separate Hooks
+**Count:** 3
+**Reason:** Different event types, actions, or low pattern overlap - unsafe to merge
+**Hooks:**
+  - escalation-clause-verbal-agreement-mismatch
+  - obey-direct-instructions
+  - block-user-instruction-override
+**Files:** instruction-override-escalation-block.json, no-unverified-ui-claims.json, post-compaction-drift.json
+
+### 5. Separate Hooks
+**Count:** 9
+**Reason:** Different event types, actions, or low pattern overlap - unsafe to merge
+**Hooks:**
+  - block-bulk-delete-via-find
+  - warn-delete-sensitive-paths
+  - block-delete-outside-project
+  - block-destructive-file-deletion
+  - block-git-destructive-checkout
+  - block-recursive-backup-without-depth-limit
+  - backup-operations-require-size-check
+  - no-unbounded-backup-recursion
+  - no-destructive-file-ops-without-bounds
+**Files:** no-destructive-delete.json, no-destructive-file-ops.json, no-pathological-backup-recursion.json, no-pathological-backups.json
+
+### 6. Separate Hooks
+**Count:** 1
+**Reason:** Different event types, actions, or low pattern overlap - unsafe to merge
+**Hooks:**
+  - silent-error-masking-detector
+**Files:** instruction-override-violations.json
+
+### 7. Separate Hooks
+**Count:** 7
+**Reason:** Different event types, actions, or low pattern overlap - unsafe to merge
+**Hooks:**
+  - key-persistence-not-verified
+  - no-docs-before-verification
+  - warn-research-before-change
+  - block-completion-without-runtime-verification
+  - visual-verification-required
+  - no-unverified-process-kill-claims
+  - gitignore-verify-before-commit
+**Files:** api-key-completion-verification.json, no-untested-completion.json, no-unverified-research.json, no-unverified-ui-claims.json, prevent-secret-loss-commits.json
+
+### 8. Separate Hooks
+**Count:** 26
+**Reason:** Different event types, actions, or low pattern overlap - unsafe to merge
+**Hooks:**
+  - integration-test-required-for-api-flow
+  - block-ui-type-mismatch
+  - block-unsubstantiated-completion
+  - no-placeholder-in-production-config
+  - detect-tui-gui-confusion
+  - flag-config-change-without-mechanism-understanding
+  - flag-repeated-file-read-without-action
+  - flag-scope-drift
+  - detect-goal-state-collision
+  - security-fix-requires-end-to-end-proof
+  - no-placeholder-values-in-critical-paths
+  - block-unlinked-deletion-via-fs-write
+  - block-gitignore-modification-tied-to-deletion
+  - blocking-decision-loop-after-redirect
+  - missing-system-access-when-corrected
+  - warn-check-ci-before-fix
+  - detect-pathological-directory-structure
+  - no-commit-without-live-test
+  - no-trusting-subagent-reports
+  - block-phantom-state-after-compaction
+  - block-agent-invention
+  - block-identical-edit
+  - block-unsupported-confidence-claim
+  - constraint-check-before-tool
+  - sensitive-data-echo-detection
+  - tool-side-effect-modeling
+**Files:** api-key-completion-verification.json, block-ui-type-mismatch.json, block-unsubstantiated-completion.json, completion-fraud-prevention.json, detect-tui-gui-confusion.json, flag-config-change-without-mechanism-understanding.json, flag-repeated-file-read-without-action.json, flag-scope-drift.json, instruction-override-violations.json, no-completion-fraud-security-fixes.json, no-destructive-file-ops.json, no-dismissal-by-acknowledgment.json, no-orphan-errors.json, no-pathological-backup-recursion.json, no-untested-completion.json, post-compaction-drift.json, sensitive-credential-tool-safety.json
+

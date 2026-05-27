@@ -1,0 +1,468 @@
+{
+  "metadata": {
+    "analyzed_date": "2026-04-12T15:38:11.116Z",
+    "total_hook_files": 29,
+    "total_hooks": 92,
+    "domains_found": 8
+  },
+  "domain_breakdown": {
+    "completion-fraud": 8,
+    "credentials-secrets": 11,
+    "dismissal-acknowledgment": 5,
+    "instruction-override": 5,
+    "file-operations": 11,
+    "error-handling": 9,
+    "verification": 7,
+    "other": 36
+  },
+  "consolidation_groups": [
+    {
+      "consolidated_name": "completion_fraud_runtime_test",
+      "source_hooks": [
+        "env-var-completion-requires-runtime-test",
+        "completion-without-user-interaction-test"
+      ],
+      "domain": "completion-fraud",
+      "event_types": [
+        "PreSubmit"
+      ],
+      "actions": [
+        "block"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "api-key-completion-verification.json",
+        "completion-fraud-prevention.json"
+      ],
+      "reason": "2 hooks in completion-fraud domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "completion_fraud_completion_fraud",
+      "source_hooks": [
+        "prevent-completion-fraud",
+        "no-completion-fraud-missing-runtime-verification"
+      ],
+      "domain": "completion-fraud",
+      "event_types": [
+        "PreSubmit"
+      ],
+      "actions": [
+        "block"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "no-completion-fraud.json",
+        "no-completion-without-e2e-verification.json"
+      ],
+      "reason": "2 hooks in completion-fraud domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "completion_fraud_tests_only",
+      "source_hooks": [
+        "no-completion-fraud-unit-tests-only",
+        "no-completion-fraud-security-fixes-untested",
+        "security-fix-completion-requires-threat-test"
+      ],
+      "domain": "completion-fraud",
+      "event_types": [
+        "PreSubmit"
+      ],
+      "actions": [
+        "warn"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "no-completion-without-e2e-verification.json",
+        "require-end-to-end-verification.json"
+      ],
+      "reason": "3 hooks in completion-fraud domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "credentials_secrets_after_move",
+      "source_hooks": [
+        "secret-persistence-verify-after-move",
+        "secret-persistence-verify-after-move"
+      ],
+      "domain": "credentials-secrets",
+      "event_types": [
+        "PostToolUse"
+      ],
+      "actions": [
+        "block"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "instruction-override-violations.json",
+        "no-completion-fraud-security-fixes.json"
+      ],
+      "reason": "2 hooks in credentials-secrets domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "credentials_secrets_with_secrets",
+      "source_hooks": [
+        "require-ask-for-file-with-secrets",
+        "no-write-tool-for-secrets"
+      ],
+      "domain": "credentials-secrets",
+      "event_types": [
+        "PreToolUse"
+      ],
+      "actions": [
+        "block"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "no-destructive-file-ops.json",
+        "sensitive-credential-tool-safety.json"
+      ],
+      "reason": "2 hooks in credentials-secrets domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "dismissal_acknowledgment_revert_detection",
+      "source_hooks": [
+        "acknowledge-then-revert-detection",
+        "correction-without-behavior-change"
+      ],
+      "domain": "dismissal-acknowledgment",
+      "event_types": [
+        "PostSubmit"
+      ],
+      "actions": [
+        "warn"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "no-dismissal-by-acknowledgment.json"
+      ],
+      "reason": "2 hooks in dismissal-acknowledgment domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "instruction_override_immediate_block",
+      "source_hooks": [
+        "escalation-command-immediate-block",
+        "block-instruction-override-with-urgency"
+      ],
+      "domain": "instruction-override",
+      "event_types": [
+        "PreToolUse"
+      ],
+      "actions": [
+        "block"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "instruction-override-escalation-block.json",
+        "instruction-override-violations.json"
+      ],
+      "reason": "2 hooks in instruction-override domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "file_operations_recursion_check",
+      "source_hooks": [
+        "backup-recursion-check",
+        "no-silent-backup-failures"
+      ],
+      "domain": "file-operations",
+      "event_types": [
+        "PostToolUse"
+      ],
+      "actions": [
+        "warn"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "completion-fraud-prevention.json",
+        "no-pathological-backups.json"
+      ],
+      "reason": "2 hooks in file-operations domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "error_handling_error_masking",
+      "source_hooks": [
+        "no-silent-error-masking",
+        "error-not-surfaced-to-user",
+        "no-completion-without-error-visibility"
+      ],
+      "domain": "error-handling",
+      "event_types": [
+        "PreSubmit"
+      ],
+      "actions": [
+        "warn"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "api-key-completion-verification.json",
+        "completion-fraud-prevention.json",
+        "no-completion-without-e2e-verification.json"
+      ],
+      "reason": "3 hooks in error-handling domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "error_handling_scope_errors",
+      "source_hooks": [
+        "block-outside-scope-errors",
+        "block-audit-pass-with-errors",
+        "block-commit-with-type-errors"
+      ],
+      "domain": "error-handling",
+      "event_types": [
+        "PreToolUse"
+      ],
+      "actions": [
+        "block"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "no-orphan-errors.json"
+      ],
+      "reason": "3 hooks in error-handling domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "error_handling_in_initialization",
+      "source_hooks": [
+        "no-silent-errors-in-initialization",
+        "require-visible-error-boundaries"
+      ],
+      "domain": "error-handling",
+      "event_types": [
+        "PostToolUse"
+      ],
+      "actions": [
+        "warn"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "no-silent-errors-critical-paths.json"
+      ],
+      "reason": "2 hooks in error-handling domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "other_reflect_state",
+      "source_hooks": [
+        "git-history-must-reflect-state",
+        "enforce-evidence-contracts",
+        "api-initialization-requires-functional-test"
+      ],
+      "domain": "other",
+      "event_types": [
+        "PreSubmit"
+      ],
+      "actions": [
+        "warn"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "completion-fraud-prevention.json",
+        "enforce-evidence-contracts.json",
+        "require-end-to-end-verification.json"
+      ],
+      "reason": "3 hooks in other domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "other_centric_ux",
+      "source_hooks": [
+        "enforce-human-centric-ux",
+        "handoff-as-authority-when-flawed"
+      ],
+      "domain": "other",
+      "event_types": [
+        "PreToolUse"
+      ],
+      "actions": [
+        "block"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "enforce-human-centric-ux.json",
+        "no-dismissal-by-acknowledgment.json"
+      ],
+      "reason": "2 hooks in other domain - all detect related violations"
+    },
+    {
+      "consolidated_name": "other_rf_directories",
+      "source_hooks": [
+        "block-rm-rf-directories",
+        "block-apply-external-docs-without-package-check",
+        "block-replace-working-code-without-runtime-test",
+        "block-wrong-sdk-alias",
+        "block-commit-placeholder-values"
+      ],
+      "domain": "other",
+      "event_types": [
+        "PreToolUse"
+      ],
+      "actions": [
+        "block"
+      ],
+      "safety_score": "HIGH",
+      "files_affected": [
+        "no-destructive-delete.json",
+        "no-unverified-research.json",
+        "prevent-secret-loss-commits.json"
+      ],
+      "reason": "5 hooks in other domain - all detect related violations"
+    }
+  ],
+  "keep_separate": [
+    {
+      "hooks": [
+        "no-completion-without-live-test"
+      ],
+      "reason": "Different event types, actions, or low pattern overlap - unsafe to merge",
+      "files": [
+        "no-untested-completion.json"
+      ]
+    },
+    {
+      "hooks": [
+        "api-key-env-injection-untested",
+        "grep-cleanup-insufficient-for-env-vars",
+        "env-var-completion-requires-key-present",
+        "use-available-api-keys",
+        "prevent-secret-loss-during-backup",
+        "environment-variable-config-requires-verification",
+        "env-file-bash-only"
+      ],
+      "reason": "Different event types, actions, or low pattern overlap - unsafe to merge",
+      "files": [
+        "api-key-completion-verification.json",
+        "completion-fraud-prevention.json",
+        "no-untested-completion.json",
+        "prevent-secret-loss-commits.json",
+        "require-end-to-end-verification.json",
+        "sensitive-credential-tool-safety.json"
+      ]
+    },
+    {
+      "hooks": [
+        "acknowledgment-without-execution-guard",
+        "detect-verbal-acknowledgment-without-execution",
+        "block-preexisting-dismissal"
+      ],
+      "reason": "Different event types, actions, or low pattern overlap - unsafe to merge",
+      "files": [
+        "instruction-override-escalation-block.json",
+        "instruction-override-violations.json",
+        "no-orphan-errors.json"
+      ]
+    },
+    {
+      "hooks": [
+        "escalation-clause-verbal-agreement-mismatch",
+        "obey-direct-instructions",
+        "block-user-instruction-override"
+      ],
+      "reason": "Different event types, actions, or low pattern overlap - unsafe to merge",
+      "files": [
+        "instruction-override-escalation-block.json",
+        "no-unverified-ui-claims.json",
+        "post-compaction-drift.json"
+      ]
+    },
+    {
+      "hooks": [
+        "block-bulk-delete-via-find",
+        "warn-delete-sensitive-paths",
+        "block-delete-outside-project",
+        "block-destructive-file-deletion",
+        "block-git-destructive-checkout",
+        "block-recursive-backup-without-depth-limit",
+        "backup-operations-require-size-check",
+        "no-unbounded-backup-recursion",
+        "no-destructive-file-ops-without-bounds"
+      ],
+      "reason": "Different event types, actions, or low pattern overlap - unsafe to merge",
+      "files": [
+        "no-destructive-delete.json",
+        "no-destructive-file-ops.json",
+        "no-pathological-backup-recursion.json",
+        "no-pathological-backups.json"
+      ]
+    },
+    {
+      "hooks": [
+        "silent-error-masking-detector"
+      ],
+      "reason": "Different event types, actions, or low pattern overlap - unsafe to merge",
+      "files": [
+        "instruction-override-violations.json"
+      ]
+    },
+    {
+      "hooks": [
+        "key-persistence-not-verified",
+        "no-docs-before-verification",
+        "warn-research-before-change",
+        "block-completion-without-runtime-verification",
+        "visual-verification-required",
+        "no-unverified-process-kill-claims",
+        "gitignore-verify-before-commit"
+      ],
+      "reason": "Different event types, actions, or low pattern overlap - unsafe to merge",
+      "files": [
+        "api-key-completion-verification.json",
+        "no-untested-completion.json",
+        "no-unverified-research.json",
+        "no-unverified-ui-claims.json",
+        "prevent-secret-loss-commits.json"
+      ]
+    },
+    {
+      "hooks": [
+        "integration-test-required-for-api-flow",
+        "block-ui-type-mismatch",
+        "block-unsubstantiated-completion",
+        "no-placeholder-in-production-config",
+        "detect-tui-gui-confusion",
+        "flag-config-change-without-mechanism-understanding",
+        "flag-repeated-file-read-without-action",
+        "flag-scope-drift",
+        "detect-goal-state-collision",
+        "security-fix-requires-end-to-end-proof",
+        "no-placeholder-values-in-critical-paths",
+        "block-unlinked-deletion-via-fs-write",
+        "block-gitignore-modification-tied-to-deletion",
+        "blocking-decision-loop-after-redirect",
+        "missing-system-access-when-corrected",
+        "warn-check-ci-before-fix",
+        "detect-pathological-directory-structure",
+        "no-commit-without-live-test",
+        "no-trusting-subagent-reports",
+        "block-phantom-state-after-compaction",
+        "block-agent-invention",
+        "block-identical-edit",
+        "block-unsupported-confidence-claim",
+        "constraint-check-before-tool",
+        "sensitive-data-echo-detection",
+        "tool-side-effect-modeling"
+      ],
+      "reason": "Different event types, actions, or low pattern overlap - unsafe to merge",
+      "files": [
+        "api-key-completion-verification.json",
+        "block-ui-type-mismatch.json",
+        "block-unsubstantiated-completion.json",
+        "completion-fraud-prevention.json",
+        "detect-tui-gui-confusion.json",
+        "flag-config-change-without-mechanism-understanding.json",
+        "flag-repeated-file-read-without-action.json",
+        "flag-scope-drift.json",
+        "instruction-override-violations.json",
+        "no-completion-fraud-security-fixes.json",
+        "no-destructive-file-ops.json",
+        "no-dismissal-by-acknowledgment.json",
+        "no-orphan-errors.json",
+        "no-pathological-backup-recursion.json",
+        "no-untested-completion.json",
+        "post-compaction-drift.json",
+        "sensitive-credential-tool-safety.json"
+      ]
+    }
+  ],
+  "summary": {
+    "original_hook_count": 92,
+    "estimated_consolidated_count": 71,
+    "consolidation_opportunities": 14,
+    "estimated_reduction_percent": 23
+  }
+}
