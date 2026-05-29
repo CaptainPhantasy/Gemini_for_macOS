@@ -2,16 +2,135 @@
  * GEMINI for MacOS - Application Control API
  *
  * FLUM-compliant API endpoints for LLM-first operation of the Gemini application.
- * These endpoints allow an external LLM to control the application programmatically.
+ * These endpoints allow an external LLM (and the mobile client) to control the
+ * application programmatically.
  *
- * The MCP server (port 13001) acts as the API gateway.
- * The React frontend exposes an internal API for storage operations.
+ * The MCP server (port 13001) acts as the API gateway and mounts this router at
+ * `/app`. App state is owned server-side and persisted to disk
+ * (`~/.gemini-for-macos/app-state.json`) so it survives restarts and can be
+ * consumed by a second client (mobile) without the desktop renderer running.
+ * When the desktop renderer is attached, a frontend bridge keeps its IndexedDB
+ * cache in sync with mutations driven through this API.
  */
 
+import { promises as fs } from 'fs';
+import path from 'path';
+import os from 'os';
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import type { AppState, Gem, Message, Thread } from '../types';
 
 const router = express.Router();
+
+// ── Server-Owned, Persisted App State ─────────────────────────────────────
+
+type PersistedAppState = AppState & { version: number };
+
+const APP_STATE_FILE = path.join(os.homedir(), '.gemini-for-macos', 'app-state.json');
+const APP_STATE_VERSION = 1;
+const APP_STATE_DEFAULTS: AppState = {
+  threads: [],
+  gems: [],
+  activeThreadId: null,
+  settings: {},
+  initialized: false,
+};
+
+let appState: AppState = { ...APP_STATE_DEFAULTS };
+let appStateInitialized = false;
+let appStateLoadPromise: Promise<void> | null = null;
+
+async function readPersistedAppState(): Promise<PersistedAppState> {
+  try {
+    const raw = await fs.readFile(APP_STATE_FILE, 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<PersistedAppState>;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ...APP_STATE_DEFAULTS, version: APP_STATE_VERSION };
+    }
+    return {
+      threads: Array.isArray(parsed.threads) ? parsed.threads : APP_STATE_DEFAULTS.threads,
+      gems: Array.isArray(parsed.gems) ? parsed.gems : APP_STATE_DEFAULTS.gems,
+      activeThreadId:
+        typeof parsed.activeThreadId === 'string' ? parsed.activeThreadId : APP_STATE_DEFAULTS.activeThreadId,
+      settings:
+        parsed.settings && typeof parsed.settings === 'object' && !Array.isArray(parsed.settings)
+          ? (parsed.settings as Record<string, unknown>)
+          : APP_STATE_DEFAULTS.settings,
+      initialized: typeof parsed.initialized === 'boolean' ? parsed.initialized : APP_STATE_DEFAULTS.initialized,
+      version: typeof parsed.version === 'number' ? parsed.version : APP_STATE_VERSION,
+    };
+  } catch {
+    return { ...APP_STATE_DEFAULTS, version: APP_STATE_VERSION };
+  }
+}
+
+async function ensureAppStateLoaded(): Promise<void> {
+  if (appStateInitialized) return;
+  if (!appStateLoadPromise) {
+    appStateLoadPromise = (async () => {
+      const persisted = await readPersistedAppState();
+      const { version: _version, ...state } = persisted;
+      appState = { ...APP_STATE_DEFAULTS, ...state };
+      appStateInitialized = true;
+    })();
+  }
+  await appStateLoadPromise;
+  appStateLoadPromise = null;
+}
+
+async function persistAppState(): Promise<void> {
+  await fs.mkdir(path.dirname(APP_STATE_FILE), { recursive: true });
+  const payload: PersistedAppState = { ...appState, version: APP_STATE_VERSION };
+  await fs.writeFile(APP_STATE_FILE, JSON.stringify(payload, null, 2), 'utf-8');
+}
+
+// Load (and keep loaded) before any handler reads/mutates state.
+router.use((_req, _res, next) => {
+  ensureAppStateLoaded().then(() => next()).catch(next);
+});
+
+/**
+ * Replace/merge the canonical app state and persist it. Exposed so the desktop
+ * renderer (or a future migration) can push its IndexedDB snapshot into the
+ * server-owned store.
+ */
+export async function updateAppState(state: Partial<AppState>): Promise<void> {
+  await ensureAppStateLoaded();
+  appState = { ...appState, ...state };
+  await persistAppState();
+}
+
+// ── Frontend Bridge ───────────────────────────────────────────────────────
+
+let frontendBridge: ((action: string, data: unknown) => Promise<unknown>) | null = null;
+
+export function setFrontendBridge(bridge: (action: string, data: unknown) => Promise<unknown>) {
+  frontendBridge = bridge;
+}
+
+async function invokeFrontendBridge(action: string, data: unknown): Promise<unknown | null> {
+  if (!frontendBridge) return null;
+  try {
+    return await frontendBridge(action, data);
+  } catch (error) {
+    console.warn('[App API] Frontend bridge failed:', error);
+    return null;
+  }
+}
+
+function normalizeMessageType(value: unknown): Message['type'] {
+  if (
+    value === 'image' ||
+    value === 'video' ||
+    value === 'audio' ||
+    value === 'artifact' ||
+    value === 'live-session' ||
+    value === 'text'
+  ) {
+    return value;
+  }
+  return 'text';
+}
 
 // ── FLUM Response Builder ─────────────────────────────────────────────────
 
@@ -47,7 +166,7 @@ function flumResponse(
   }
 ): FLUMResponse {
   const traceId = generateTraceId();
-  const startTime = options?.metadata?.startTime as number || Date.now();
+  const startTime = (options?.metadata?.startTime as number) || Date.now();
 
   return {
     status,
@@ -65,62 +184,6 @@ function flumResponse(
   };
 }
 
-// ── Application State Types ──────────────────────────────────────────────
-
-interface Message {
-  id: string;
-  role: 'user' | 'model';
-  content: string;
-  timestamp: number;
-  type?: 'text' | 'image' | 'video' | 'audio' | 'artifact' | 'live-session';
-  artifactData?: string | unknown;
-}
-
-interface Thread {
-  id: string;
-  title: string;
-  messages: Message[];
-  createdAt: number;
-  updatedAt: number;
-  gemId?: string;
-  pinned?: boolean;
-}
-
-interface Gem {
-  id: string;
-  name: string;
-  systemInstruction: string;
-  createdAt: number;
-}
-
-interface AppState {
-  threads: Thread[];
-  gems: Gem[];
-  activeThreadId: string | null;
-  settings: Record<string, unknown>;
-  initialized: boolean;
-}
-
-// In-memory state that will be synced with frontend via WebSocket bridge
-let appState: AppState = {
-  threads: [],
-  gems: [],
-  activeThreadId: null,
-  settings: {},
-  initialized: false,
-};
-
-// WebSocket bridge to frontend for state synchronization
-let frontendBridge: ((action: string, data: unknown) => Promise<unknown>) | null = null;
-
-export function setFrontendBridge(bridge: (action: string, data: unknown) => Promise<unknown>) {
-  frontendBridge = bridge;
-}
-
-export function updateAppState(state: Partial<AppState>) {
-  appState = { ...appState, ...state };
-}
-
 // ── Thread Management Endpoints ──────────────────────────────────────────
 
 /**
@@ -130,15 +193,17 @@ export function updateAppState(state: Partial<AppState>) {
 router.get('/threads', async (req, res) => {
   const startTime = Date.now();
 
-  const threads = appState.threads.map(t => ({
-    id: t.id,
-    title: t.title,
-    messageCount: t.messages.length,
-    createdAt: t.createdAt,
-    updatedAt: t.updatedAt,
-    pinned: t.pinned || false,
-    gemId: t.gemId || null,
-  }));
+  const threads = [...appState.threads]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map(t => ({
+      id: t.id,
+      title: t.title,
+      messageCount: t.messages.length,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      pinned: t.pinned || false,
+      gemId: t.gemId || null,
+    }));
 
   res.json(flumResponse(
     'success',
@@ -192,29 +257,25 @@ router.get('/threads/:id', async (req, res) => {
 
 /**
  * POST /app/threads - Create new thread
- * FLUM Principle: One Door In (action parameter not needed - endpoint IS the action)
+ * FLUM Principle: One Door In (endpoint IS the action)
+ * Reads from req.body so mobile can send structured payloads (W3).
  */
 router.post('/threads', async (req, res) => {
   const startTime = Date.now();
-  const { title, gemId } = req.query;
+  const body = (req.body ?? {}) as { title?: unknown; gemId?: unknown };
 
   const newThread: Thread = {
     id: uuidv4(),
-    title: typeof title === 'string' ? title : 'New Chat',
+    title: typeof body.title === 'string' && body.title.trim() ? body.title : 'New Chat',
     messages: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    gemId: typeof gemId === 'string' ? gemId : undefined,
+    gemId: typeof body.gemId === 'string' ? body.gemId : undefined,
   };
 
-  // Notify frontend to create the thread
-  if (frontendBridge) {
-    try {
-      await frontendBridge('create_thread', newThread);
-    } catch (e) {
-      console.warn('[App API] Frontend bridge failed:', e);
-    }
-  }
+  appState = { ...appState, threads: [...appState.threads, newThread] };
+  await persistAppState();
+  await invokeFrontendBridge('create_thread', newThread);
 
   res.json(flumResponse(
     'success',
@@ -248,14 +309,13 @@ router.delete('/threads/:id', async (req, res) => {
     ));
   }
 
-  // Notify frontend
-  if (frontendBridge) {
-    try {
-      await frontendBridge('delete_thread', { id });
-    } catch (e) {
-      console.warn('[App API] Frontend bridge failed:', e);
-    }
-  }
+  appState = {
+    ...appState,
+    threads: appState.threads.filter(t => t.id !== id),
+    activeThreadId: appState.activeThreadId === id ? null : appState.activeThreadId,
+  };
+  await persistAppState();
+  await invokeFrontendBridge('delete_thread', { id });
 
   res.json(flumResponse(
     'success',
@@ -302,19 +362,22 @@ router.get('/threads/:id/messages', async (req, res) => {
 
 /**
  * POST /app/threads/:id/messages - Send message to Gemini
- * This is the main LLM interaction endpoint
+ * This is the main LLM interaction endpoint.
+ * Reads content/type from req.body (W3) so non-trivial messages and
+ * attachments are not truncated or mangled by query-string limits.
  */
 router.post('/threads/:id/messages', async (req, res) => {
   const startTime = Date.now();
   const { id } = req.params;
-  const { content, type } = req.query;
+  const body = (req.body ?? {}) as { content?: unknown; type?: unknown };
+  const content = body.content;
 
   if (!content || typeof content !== 'string') {
     return res.json(flumResponse(
       'failure',
       'Missing required parameter: content',
-      'Provide the message content to send to Gemini.',
-      ['GET /app/threads/:id', 'POST /app/threads/:id/messages?content=...'],
+      'Provide the message content in the JSON body to send to Gemini.',
+      ['GET /app/threads/:id', 'POST /app/threads/:id/messages'],
       { tool: 'send_message', metadata: { startTime, threadId: id } }
     ));
   }
@@ -330,74 +393,73 @@ router.post('/threads/:id/messages', async (req, res) => {
     ));
   }
 
-  // Create user message
   const userMessage: Message = {
     id: uuidv4(),
     role: 'user',
     content,
     timestamp: Date.now(),
-    type: typeof type === 'string' ? type as Message['type'] : 'text',
+    type: normalizeMessageType(body.type),
   };
 
-  // Notify frontend to send the message and get response
-  // The frontend will handle the actual Gemini API call
-  if (frontendBridge) {
-    try {
-      const result = await frontendBridge('send_message', {
-        threadId: id,
-        message: userMessage,
-      });
+  // Record the user message in the canonical store immediately so the
+  // conversation is consistent even if the model response arrives later.
+  appState = {
+    ...appState,
+    threads: appState.threads.map(t =>
+      t.id === id ? { ...t, messages: [...t.messages, userMessage], updatedAt: Date.now() } : t
+    ),
+  };
+  await persistAppState();
 
-      // Result should contain the model's response
-      const responseData = result as { modelMessage?: Message; error?: string };
+  // Notify the frontend to perform the actual Gemini API call.
+  const result = await invokeFrontendBridge('send_message', { threadId: id, message: userMessage });
+  const responseData = (result ?? {}) as { modelMessage?: Message; error?: string };
 
-      if (responseData.error) {
-        return res.json(flumResponse(
-          'failure',
-          `Message failed: ${responseData.error}`,
-          'Check your Gemini API key and try again.',
-          ['GET /app/settings', 'POST /app/settings'],
-          { tool: 'send_message', metadata: { startTime, threadId: id } }
-        ));
-      }
-
-      return res.json(flumResponse(
-        'success',
-        responseData.modelMessage
-          ? `Message sent. Response: ${responseData.modelMessage.content.substring(0, 100)}...`
-          : 'Message sent, waiting for response.',
-        responseData.modelMessage
-          ? 'Message sent and response received. Use GET /app/threads/:id/messages to see full conversation.'
-          : 'Check thread for response.',
-        [
-          `GET /app/threads/${id}/messages`,
-          'GET /app/threads',
-        ],
-        {
-          tool: 'send_message',
-          metadata: {
-            startTime,
-            threadId: id,
-            messageId: userMessage.id,
-            responseId: responseData.modelMessage?.id,
-          },
-          advanced: {
-            userMessage,
-            modelMessage: responseData.modelMessage,
-          },
-          tip: 'Gemini will use Desktop Commander tools automatically when needed.',
-        }
-      ));
-    } catch (e) {
-      console.warn('[App API] Frontend bridge error:', e);
-    }
+  if (result && responseData.error) {
+    return res.json(flumResponse(
+      'failure',
+      `Message failed: ${responseData.error}`,
+      'Check your Gemini API key and try again.',
+      ['GET /app/settings', 'POST /app/settings'],
+      { tool: 'send_message', metadata: { startTime, threadId: id } }
+    ));
   }
 
-  // If no bridge, return pending status
+  if (result && responseData.modelMessage) {
+    appState = {
+      ...appState,
+      threads: appState.threads.map(t =>
+        t.id === id
+          ? { ...t, messages: [...t.messages, responseData.modelMessage as Message], updatedAt: Date.now() }
+          : t
+      ),
+    };
+    await persistAppState();
+
+    return res.json(flumResponse(
+      'success',
+      `Message sent. Response: ${responseData.modelMessage.content.substring(0, 100)}...`,
+      'Message sent and response received. Use GET /app/threads/:id/messages to see the full conversation.',
+      [`GET /app/threads/${id}/messages`, 'GET /app/threads'],
+      {
+        tool: 'send_message',
+        metadata: {
+          startTime,
+          threadId: id,
+          messageId: userMessage.id,
+          responseId: responseData.modelMessage.id,
+        },
+        advanced: { userMessage, modelMessage: responseData.modelMessage },
+        tip: 'Gemini will use Desktop Commander tools automatically when needed.',
+      }
+    ));
+  }
+
+  // No bridge attached (e.g. mobile-only) — message persisted, response pending.
   res.json(flumResponse(
     'pending',
     'Message queued, waiting for Gemini response.',
-    'Check thread messages for response.',
+    'Check thread messages for the response once the desktop client processes it.',
     [`GET /app/threads/${id}/messages`],
     {
       tool: 'send_message',
@@ -450,7 +512,7 @@ router.get('/gems/:id', async (req, res) => {
     'success',
     `Gem: ${gem.name}`,
     'Use this gem ID as gemId parameter when creating threads.',
-    [`POST /app/threads?gemId=${id}`],
+    [`POST /app/threads (gemId=${id})`],
     {
       tool: 'get_gem',
       metadata: { startTime },
@@ -461,16 +523,17 @@ router.get('/gems/:id', async (req, res) => {
 
 /**
  * POST /app/gems - Create new gem
+ * Reads from req.body (W3).
  */
 router.post('/gems', async (req, res) => {
   const startTime = Date.now();
-  const { name, systemInstruction } = req.query;
+  const body = (req.body ?? {}) as { name?: unknown; systemInstruction?: unknown };
 
-  if (!name || typeof name !== 'string') {
+  if (!body.name || typeof body.name !== 'string') {
     return res.json(flumResponse(
       'failure',
       'Missing required parameter: name',
-      'Provide a name for the new gem.',
+      'Provide a name for the new gem in the JSON body.',
       ['GET /app/gems'],
       { tool: 'create_gem', metadata: { startTime } }
     ));
@@ -478,25 +541,20 @@ router.post('/gems', async (req, res) => {
 
   const newGem: Gem = {
     id: uuidv4(),
-    name,
-    systemInstruction: typeof systemInstruction === 'string' ? systemInstruction : '',
+    name: body.name,
+    systemInstruction: typeof body.systemInstruction === 'string' ? body.systemInstruction : '',
     createdAt: Date.now(),
   };
 
-  // Notify frontend
-  if (frontendBridge) {
-    try {
-      await frontendBridge('create_gem', newGem);
-    } catch (e) {
-      console.warn('[App API] Frontend bridge failed:', e);
-    }
-  }
+  appState = { ...appState, gems: [...appState.gems, newGem] };
+  await persistAppState();
+  await invokeFrontendBridge('create_gem', newGem);
 
   res.json(flumResponse(
     'success',
     `Created gem: ${newGem.name}`,
-    `Gem created with ID: ${newGem.id}. Use POST /app/threads?gemId=${newGem.id} to use this gem.`,
-    [`POST /app/threads?gemId=${newGem.id}`, 'GET /app/gems'],
+    `Gem created with ID: ${newGem.id}. Pass gemId=${newGem.id} when creating a thread to use this gem.`,
+    ['POST /app/threads', 'GET /app/gems'],
     {
       tool: 'create_gem',
       metadata: { startTime, gemId: newGem.id },
@@ -530,29 +588,26 @@ router.get('/settings', async (req, res) => {
 
 /**
  * POST /app/settings - Update application settings
+ * Reads from req.body (W3).
  */
 router.post('/settings', async (req, res) => {
   const startTime = Date.now();
-  const { key, value } = req.query;
+  const body = (req.body ?? {}) as { key?: unknown; value?: unknown };
 
-  if (!key || typeof key !== 'string') {
+  if (!body.key || typeof body.key !== 'string') {
     return res.json(flumResponse(
       'failure',
       'Missing required parameter: key',
-      'Provide a setting key to update.',
+      'Provide a setting key in the JSON body to update.',
       ['GET /app/settings'],
       { tool: 'update_settings', metadata: { startTime } }
     ));
   }
 
-  // Notify frontend
-  if (frontendBridge) {
-    try {
-      await frontendBridge('update_settings', { key, value });
-    } catch (e) {
-      console.warn('[App API] Frontend bridge failed:', e);
-    }
-  }
+  const key = body.key;
+  appState = { ...appState, settings: { ...appState.settings, [key]: body.value } };
+  await persistAppState();
+  await invokeFrontendBridge('update_settings', { key, value: body.value });
 
   res.json(flumResponse(
     'success',
@@ -561,7 +616,7 @@ router.post('/settings', async (req, res) => {
     ['GET /app/settings'],
     {
       tool: 'update_settings',
-      metadata: { startTime, key, value },
+      metadata: { startTime, key },
     }
   ));
 });

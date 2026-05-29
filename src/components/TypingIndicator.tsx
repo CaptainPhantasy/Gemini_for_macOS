@@ -1,9 +1,10 @@
 import { Sparkles } from 'lucide-react';
+import { OFFICIAL_GEMINI_ASSETS } from '../lib/official-assets';
 
 export function TypingIndicator() {
   return (
     <div className="flex justify-start">
-      <div className="max-w-[80%] rounded-2xl px-5 py-3 bg-transparent text-gray-900 dark:text-gray-100">
+      <div className="max-w-[80%] rounded-2xl px-5 py-3 bg-transparent text-gray-900 dark:text-gray-100" data-official-spinner={OFFICIAL_GEMINI_ASSETS.spinnerLottie}>
         <div className="flex items-center gap-3">
           <Sparkles size={14} className="text-purple-400 shrink-0" />
           <span className="flex items-center gap-1" aria-hidden="true">

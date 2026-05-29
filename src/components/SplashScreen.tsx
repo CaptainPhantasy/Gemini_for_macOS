@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { OFFICIAL_GEMINI_ASSETS } from '../lib/official-assets';
 
 interface SplashScreenProps {
   onComplete: () => void;
@@ -40,6 +41,7 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
           onError={() => setError(true)}
           className="w-full h-full object-cover"
         >
+          <source src={OFFICIAL_GEMINI_ASSETS.idleVideo} type="video/mp4" />
           <source src={`${assetBase}splash.mp4`} type="video/mp4" />
           <source src={`${assetBase}splash.mov`} type="video/quicktime" />
           Your browser does not support the video tag.

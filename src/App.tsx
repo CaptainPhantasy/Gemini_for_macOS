@@ -17,7 +17,7 @@ import { autoSyncArtifact } from './lib/drive-sync';
 import { v4 as uuidv4 } from 'uuid';
 import { getAI } from './lib/api-config';
 import { SplashScreen } from './components/SplashScreen';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldAlert, Plus, Search as SearchIcon, Settings as SettingsIcon, Camera, Sun, Moon, Menu } from 'lucide-react';
 import { detectArtifacts } from './lib/utils';
 import { Search } from "./components/Search";
 import { CommandPalette } from "./components/CommandPalette";
@@ -36,8 +36,7 @@ import { selectModel } from './lib/model-orchestrator';
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { exportThreadAsMarkdown } from "./lib/thread-export";
-import { Search as SearchIcon, Plus, Moon, Sun, Settings as SettingsIcon, Camera, Menu } from "lucide-react";
-
+const MODEL_CONTEXT_MESSAGE_LIMIT = 40;
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -336,12 +335,14 @@ export default function App() {
         .filter(Boolean)
         .join('\n\n');
 
-      // Conversation history — send the full thread so the model does not
-      // "lose context" between turns. Map our Message shape to Gemini content parts.
-      // When an attachment is present, include it as inlineData on the last user message.
-      const historyContents = updatedMessages.map((m, i) => {
+      // Conversation history — window to recent turns before sending to the model.
+      // Keeps function-call compatibility and caps token growth on long threads.
+      const workingMessages = updatedMessages.length <= MODEL_CONTEXT_MESSAGE_LIMIT
+        ? updatedMessages
+        : updatedMessages.slice(-MODEL_CONTEXT_MESSAGE_LIMIT);
+      const historyContents = workingMessages.map((m, i, arr) => {
         const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [{ text: m.content }];
-        if (attachment && i === updatedMessages.length - 1 && m.role === 'user') {
+        if (attachment && i === arr.length - 1 && m.role === 'user') {
           const base64 = attachment.dataUri.split(',')[1];
           if (base64) {
             parts.push({ inlineData: { mimeType: attachment.mimeType, data: base64 } });
@@ -353,7 +354,6 @@ export default function App() {
       const ai = await getAI();
       console.log('Sending message to model with history:', historyContents.length, 'turns');
 
-      // Build tool config: MCP tools as native functionDeclarations + optional Google Search.
       const geminiTools = buildGeminiTools(tools, !!settings.searchEnabled);
 
       // ── Intent-driven model orchestration (Roadmap §3c) ──────────────────
@@ -648,6 +648,14 @@ export default function App() {
         gridTemplateColumns: `${navDrawerOpen ? navRailOpenWidth : `${navRailClosedWidth}px`} minmax(0, 1fr) ${canvasDrawerOpen ? canvasRailOpenWidth : `${canvasRailClosedWidth}px`}`,
       }}
     >
+      {/* Skip link — first focusable element so keyboard users can bypass the
+          nav rail and jump straight to the chat. Visually hidden until focused. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[200] focus:rounded-lg focus:bg-blue-600 focus:px-4 focus:py-2 focus:text-white focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
       {/* Feature 12: Offline indicator */}
       <OfflineIndicator />
       {/* Mobile hamburger — hidden on desktop via CSS media query. */}
@@ -703,7 +711,7 @@ export default function App() {
         />
       </div>
       
-      <div className="min-h-0 min-w-0 flex relative overflow-hidden" role="main" aria-label="Main chat area">
+      <div id="main-content" tabIndex={-1} className="min-h-0 min-w-0 flex relative overflow-hidden outline-none" role="main" aria-label="Main chat area">
         <Chat
           messages={activeThread?.messages || []}
           onSendMessage={handleSendMessage}
@@ -754,6 +762,7 @@ export default function App() {
         onClose={() => setShowIntegrations(false)}
         gcpClientId={settings.gcpOAuthClientId}
         notebookLmEnabled={settings.notebookLmEnabled}
+        activeThread={activeThread ?? null}
       />
 
       {/* MCP Permission Modal */}

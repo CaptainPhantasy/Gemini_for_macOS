@@ -18,6 +18,7 @@ import { promisify } from 'util';
 import path from 'path';
 import os from 'os';
 import apiRoutes, { setMcpContext, type McpContext } from '../lib/api-routes';
+import appApiRoutes from '../lib/app-api-routes';
 import { dispatchJules } from './jules-agent';
 
 const execAsync = promisify(exec);
@@ -334,12 +335,22 @@ class StdioMcpClient {
 // Accept: application/json, text/event-stream. Server responds with
 // SSE events containing JSON-RPC responses.
 
+// Lightweight request-hardening for SSE transport.
+// Keeps the local MCP bridge robust under slow servers and oversized payloads.
+const SSE_TIMEOUT_MS = 15000;
+const SSE_RESPONSE_LIMIT_BYTES = 1024 * 1024; // 1MB
+const SSE_MAX_REQUEST_SIZE_BYTES = 256 * 1024; // 256KB
+// ── Streamable HTTP MCP Client ─────────────────────────────────────────
+
 class SSEMcpClient {
   private messageId = 0;
   private initialized = false;
   private toolCache: ToolDefinition[] = [];
   private initPromise: Promise<void> | null = null;
   private sessionUrl = '';
+  private readonly requestTimeoutMs = SSE_TIMEOUT_MS;
+  private readonly responseSizeLimit = SSE_RESPONSE_LIMIT_BYTES;
+  private readonly requestSizeLimit = SSE_MAX_REQUEST_SIZE_BYTES;
 
   constructor(
     private name: string,
@@ -391,14 +402,34 @@ class SSEMcpClient {
       params: params || {},
     };
 
-    const response = await fetch(this.sessionUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream',
-      },
-      body: JSON.stringify(request),
-    });
+    const body = JSON.stringify(request);
+    if (body.length > this.requestSizeLimit) {
+      throw new Error(`[SSE:${this.name}] Request too large: ${body.length} bytes`);
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch(this.serverUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/event-stream',
+        },
+        body,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`[SSE:${this.name}] Request timeout after ${this.requestTimeoutMs}ms`);
+      }
+      throw new Error(`[SSE:${this.name}] SSE POST failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok) {
       const text = await response.text();
@@ -406,49 +437,109 @@ class SSEMcpClient {
     }
 
     const contentType = response.headers.get('content-type') || '';
-
-    // Handle SSE response (text/event-stream)
     if (contentType.includes('text/event-stream')) {
       return this.parseSSEResponse(response, id);
     }
 
-    // Handle direct JSON response
     if (contentType.includes('application/json')) {
       const data = await response.json() as { id?: number; result?: unknown; error?: { message: string } };
+      if (data.id !== undefined && data.id !== id) {
+        throw new Error(`[SSE:${this.name}] Response id mismatch. expected ${id}, got ${data.id}`);
+      }
       if (data.error) {
         throw new Error(data.error.message || 'SSE MCP Error');
       }
       return data.result;
     }
 
-    // Fallback: try to parse as text/event-stream regardless of content-type
     return this.parseSSEResponse(response, id);
   }
 
   private async parseSSEResponse(response: Response, expectedId: number): Promise<unknown> {
-    const text = await response.text();
-    const lines = text.split('\n');
-
-    for (const line of lines) {
-      if (!line.startsWith('data:')) continue;
-      const data = line.slice(5).trim();
-      if (!data) continue;
-
-      try {
-        const parsed = JSON.parse(data) as { id?: number; result?: unknown; error?: { message: string } };
-        if (parsed.id === expectedId) {
-          if (parsed.error) {
-            throw new Error(parsed.error.message || 'SSE MCP Error');
-          }
-          return parsed.result;
-        }
-      } catch (e) {
-        if (e instanceof Error && e.message.includes('SSE MCP Error')) throw e;
-        // Ignore non-JSON data lines
-      }
+    if (!response.body) {
+      throw new Error(`[SSE:${this.name}] No response body available`);
     }
 
-    throw new Error(`[SSE:${this.name}] No response found for request ${expectedId}`);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let consumedBytes = 0;
+    let buffer = '';
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`[SSE:${this.name}] SSE response timeout after ${this.requestTimeoutMs}ms`)), this.requestTimeoutMs);
+    });
+
+    try {
+      return await Promise.race([
+        (async () => {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            consumedBytes += value.byteLength;
+            if (consumedBytes > this.responseSizeLimit) {
+              throw new Error(`[SSE:${this.name}] SSE response too large: ${consumedBytes} bytes`);
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const events = buffer.split('\n\n');
+            buffer = events.pop() || '';
+
+            for (const rawEvent of events) {
+              const payload = rawEvent
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line.startsWith('data:'))
+                .map(line => line.slice(5).trim())
+                .filter(line => line.length > 0)
+                .join('\n');
+
+              if (!payload) {
+                continue;
+              }
+
+              try {
+                const parsed = JSON.parse(payload) as { id?: number; result?: unknown; error?: { message: string } };
+                if (parsed.id === undefined || parsed.id !== expectedId) {
+                  continue;
+                }
+                if (parsed.error) {
+                  throw new Error(parsed.error.message || 'SSE MCP Error');
+                }
+                return parsed.result;
+              } catch (e) {
+                if (e instanceof Error && e.message.includes('SSE MCP Error')) {
+                  throw e;
+                }
+                // Ignore malformed payload lines in SSE stream
+              }
+            }
+          }
+
+          const trailingPayload = buffer
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.startsWith('data:'))
+            .map(line => line.slice(5).trim())
+            .filter(line => line.length > 0)
+            .join('\n');
+
+          if (trailingPayload) {
+            const parsed = JSON.parse(trailingPayload) as { id?: number; result?: unknown; error?: { message: string } };
+            if (parsed.id === expectedId) {
+              if (parsed.error) {
+                throw new Error(parsed.error.message || 'SSE MCP Error');
+              }
+              return parsed.result;
+            }
+          }
+
+          throw new Error(`[SSE:${this.name}] No response found for request ${expectedId}`);
+        })(),
+        timeout,
+      ]);
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   getName(): string {
@@ -468,7 +559,6 @@ class SSEMcpClient {
       throw new Error(`SSE:${this.name} not connected`);
     }
     const result = await this.sendRequest('tools/call', { name, arguments: args });
-    // Normalize response to MCP format
     if (result && typeof result === 'object' && 'content' in (result as object)) {
       return result;
     }
@@ -479,6 +569,7 @@ class SSEMcpClient {
     this.initialized = false;
   }
 }
+
 
 // ── MCP Server ─────────────────────────────────────────────────────────
 
@@ -665,8 +756,9 @@ class MCPServer {
       if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1):13000$/.test(origin)) {
         res.header('Access-Control-Allow-Origin', origin || 'http://localhost:13000');
       }
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type');
+      res.header('Vary', 'Origin');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
       if (req.method === 'OPTIONS') {
         return res.sendStatus(204);
       }
@@ -678,11 +770,14 @@ class MCPServer {
     // keeping this module focused on MCP WebSocket proxy handling.
     this.app.use('/', apiRoutes);
 
+    // App-control API (threads/gems/settings) for LLM + mobile clients.
+    // State is server-owned and persisted to ~/.gemini-for-macos/app-state.json.
+    this.app.use('/app', appApiRoutes);
+
     // MCP WebSocket upgrade (stays here — this is the core MCP concern)
     this.app.get('/mcp', (req, res) => {
       res.status(400).send('Use WebSocket');
     });
-
   }
 
   private async detectLocalMcpServers(): Promise<Array<{
@@ -749,15 +844,12 @@ class MCPServer {
 
     return discovered;
   }
-
   public start(): void {
     const server = this.app.listen(this.port, '127.0.0.1', () => {
       console.log(`✓ GEMINI MCP Server running on port ${this.port}`);
     });
-
     this.wss = new WebSocketServer({ server });
 
-    // Prevent unhandled error from crashing the process
     this.wss.on('error', (error: Error) => {
       console.error('[MCP] WebSocketServer error (non-fatal):', error.message);
     });

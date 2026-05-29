@@ -4,7 +4,7 @@ import { SafeMarkdown } from './SafeMarkdown';
 import { TypingIndicator } from './TypingIndicator';
 import { Send, Image as ImageIcon, Video, Play, Upload, X, Diamond, Copy, Check, RefreshCw, Pencil, ChevronDown, FileUp, FolderOpen } from 'lucide-react';
 import { buildFolderContextBundle, COMMON_FILE_ACCEPT } from '../lib/attachment-context';
-
+const CHAT_MESSAGE_RENDER_LIMIT = 120;
 interface ChatProps {
   messages: Message[];
   onSendMessage: (content: string, type?: string, attachment?: { dataUri: string; mimeType: string; name: string }) => void;
@@ -16,7 +16,6 @@ interface ChatProps {
   onRegenerate?: () => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
 }
-
 export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemId, onSetGem, isLoading, onRegenerate, onEditMessage }: ChatProps) {
   const [input, setInput] = useState('');
   const [isDragging, setIsDragging] = useState(false);
@@ -148,10 +147,8 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
     return words;
   };
 
-  // Find last model message for regenerate button
-  const lastModelMsgIndex = messages.length > 0
-    ? messages.reduce((last, msg, i) => msg.role === 'model' ? i : last, -1)
-    : -1;
+  const visibleMessages = messages.slice(-CHAT_MESSAGE_RENDER_LIMIT);
+  const lastModelMessageId = visibleMessages.reduce<string | null>((last, msg) => (msg.role === 'model' ? msg.id : last), null);
 
   return (
     <div
@@ -172,6 +169,7 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
           <select
             value={activeGemId || ''}
             onChange={(e) => onSetGem(e.target.value || undefined)}
+            aria-label="Select a Gem"
             className="text-xs bg-transparent border border-gray-200 dark:border-gray-700 rounded-lg px-2 py-1 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-purple-500"
           >
             <option value="">No Gem (default)</option>
@@ -187,7 +185,7 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
         role="log"
         aria-live="polite"
       >
-        {messages.map((msg, msgIndex) => (
+        {visibleMessages.map((msg) => (
           <div key={msg.id} className={`group flex min-w-0 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`relative min-w-0 max-w-[80%] overflow-hidden rounded-2xl px-5 py-3 ${
               msg.role === 'user'
@@ -214,6 +212,7 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
                 <div className="flex flex-col gap-2">
                   <textarea
                     autoFocus
+                    aria-label="Edit message"
                     value={editContent}
                     onChange={(e) => setEditContent(e.target.value)}
                     onKeyDown={(e) => {
@@ -260,7 +259,7 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
                       <Pencil size={12} />
                     </button>
                   )}
-                  {msg.role === 'model' && msgIndex === lastModelMsgIndex && onRegenerate && !isLoading && (
+                  {msg.role === 'model' && msg.id === lastModelMessageId && onRegenerate && !isLoading && (
                     <button
                       onClick={onRegenerate}
                       className="p-1 rounded-md bg-gray-200/80 dark:bg-gray-700/80 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 backdrop-blur-sm"
@@ -274,8 +273,6 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
             </div>
           </div>
         ))}
-
-        {/* Feature 1: Typing indicator while loading */}
         {isLoading && <TypingIndicator />}
 
         <div ref={messagesEndRef} />
@@ -298,7 +295,7 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
             {attachment && (
               <div className="flex items-center gap-2">
                 <span className="truncate">File: {attachment.name}</span>
-                <button type="button" onClick={() => setAttachment(null)} className="text-gray-400 hover:text-red-500">
+                <button type="button" onClick={() => setAttachment(null)} aria-label="Remove attached file" className="text-gray-400 hover:text-red-500">
                   <X size={14} />
                 </button>
               </div>
@@ -306,7 +303,7 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
             {contextBundle && (
               <div className="flex items-center gap-2">
                 <span className="truncate">{contextBundle.name} · {contextBundle.text.length.toLocaleString()} chars prepared</span>
-                <button type="button" onClick={() => setContextBundle(null)} className="text-gray-400 hover:text-red-500">
+                <button type="button" onClick={() => setContextBundle(null)} aria-label="Remove folder context" className="text-gray-400 hover:text-red-500">
                   <X size={14} />
                 </button>
               </div>
@@ -317,19 +314,19 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
           <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Attach common file type">
             <FileUp size={20} />
           </button>
-          <input ref={fileInputRef} type="file" accept={COMMON_FILE_ACCEPT} className="hidden" onChange={(e) => handleFileSelect(e)} />
+          <input ref={fileInputRef} type="file" accept={COMMON_FILE_ACCEPT} aria-label="Attach a file" className="hidden" onChange={(e) => handleFileSelect(e)} />
           <button type="button" onClick={() => imageInputRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Upload Image">
             <ImageIcon size={20} />
           </button>
-          <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFileSelect(e)} />
+          <input ref={imageInputRef} type="file" accept="image/*" aria-label="Upload an image" className="hidden" onChange={(e) => handleFileSelect(e)} />
           <button type="button" onClick={() => videoInputRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Upload Video">
             <Video size={20} />
           </button>
-          <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={(e) => handleFileSelect(e)} />
+          <input ref={videoInputRef} type="file" accept="video/*" aria-label="Upload a video" className="hidden" onChange={(e) => handleFileSelect(e)} />
           <button type="button" onClick={() => folderInputRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Attach folder context">
             <FolderOpen size={20} />
           </button>
-          <input ref={folderInputRef} type="file" multiple className="hidden" onChange={(e) => { void handleFolderSelect(e); }} />
+          <input ref={folderInputRef} type="file" multiple aria-label="Attach a folder for context" className="hidden" onChange={(e) => { void handleFolderSelect(e); }} />
           <input
             ref={inputRef}
             type="text"
@@ -337,9 +334,10 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
             onChange={(e) => setInput(e.target.value)}
             placeholder={isLoading ? "Gemini is thinking..." : "Ask Gemini..."}
             disabled={isLoading}
+            aria-label="Message Gemini"
             className="flex-1 bg-transparent border-none focus:outline-none px-4 py-2 text-gray-900 dark:text-gray-100 disabled:opacity-50"
           />
-          <button type="submit" disabled={(!input.trim() && !attachment && !contextBundle) || isLoading} className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+          <button type="submit" disabled={(!input.trim() && !attachment && !contextBundle) || isLoading} aria-label="Send message" className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
             <Send size={18} />
           </button>
         </form>

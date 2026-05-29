@@ -24,6 +24,14 @@ export type Gem = {
   createdAt: number;
 };
 
+export type AppState = {
+  threads: Thread[];
+  gems: Gem[];
+  activeThreadId: string | null;
+  settings: Record<string, unknown>;
+  initialized: boolean;
+};
+
 export type ScheduledAction = {
   id: string;
   cron: string;
@@ -46,6 +54,9 @@ export type Artifact = {
     durationSec?: number;
     sizeBytes?: number;
     estimatedCostUsd?: number;
+    sourceFileId?: string;
+    sourceType?: 'drive' | 'docs' | 'calendar';
+    fetchedAt?: number;
   };
 };
 

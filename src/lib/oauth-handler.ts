@@ -31,21 +31,38 @@ import { openDB, type IDBPDatabase } from 'idb';
 // Public types and constants
 // ---------------------------------------------------------------------------
 
-export const OAUTH_SCOPES = [
-  'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/documents',
-  'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/cloud-billing.readonly',
+export const GOOGLE_DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+export const GOOGLE_DRIVE_READ_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+export const GOOGLE_DOCS_SCOPE = 'https://www.googleapis.com/auth/documents';
+export const GOOGLE_CALENDAR_READ_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+export const GOOGLE_BILLING_READ_SCOPE = 'https://www.googleapis.com/auth/cloud-billing.readonly';
+
+export const GOOGLE_WORKSPACE_SCOPES = [
+  GOOGLE_DRIVE_FILE_SCOPE,
+  GOOGLE_DRIVE_READ_SCOPE,
+  GOOGLE_DOCS_SCOPE,
+  GOOGLE_CALENDAR_READ_SCOPE,
+  GOOGLE_BILLING_READ_SCOPE,
 ] as const;
+
+export const GOOGLE_WORKSPACE_MCP_SCOPES = [
+  GOOGLE_DRIVE_READ_SCOPE,
+  GOOGLE_DOCS_SCOPE,
+  GOOGLE_CALENDAR_READ_SCOPE,
+] as const;
+
+/** Backward-compatible broad Google Workspace bundle. Prefer named bundles for new flows. */
+export const OAUTH_SCOPES = GOOGLE_WORKSPACE_SCOPES;
 
 export interface OAuthConfig {
   /** Google OAuth 2.0 Client ID (public). Never hardcoded — supplied by caller. */
   clientId: string;
   /** Redirect URI registered in the Google Cloud console, e.g. http://localhost:13000/oauth/callback */
   redirectUri: string;
-  /** Subset of OAUTH_SCOPES to request. */
+  /** Scope bundle to request. Picker flows must pass only GOOGLE_DRIVE_FILE_SCOPE. */
   scopes: string[];
+  /** Extra OAuth authorization URL params, e.g. trigger_onepick=true for Drive Picker. */
+  extraAuthorizeParams?: Record<string, string>;
 }
 
 export interface TokenSet {
@@ -55,6 +72,8 @@ export interface TokenSet {
   expiresAt: number;
   /** Space-delimited scopes the token was actually granted. */
   scope: string;
+  /** Drive Picker file IDs returned by Google Picker desktop flow, if any. */
+  pickedFileIds?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +86,8 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DB_NAME = 'gemini-for-macos-oauth';
 const DB_VERSION = 1;
 const STORE_NAME = 'tokens';
-const TOKEN_KEY = 'current';
+const LEGACY_TOKEN_KEY = 'current';
+const TOKEN_KEY_PREFIX = 'scope:';
 
 const LS_KEY_CRYPTO = 'gemini-for-macos:oauth-key';
 const LS_KEY_PLAINTEXT_FALLBACK = 'gemini-for-macos:oauth-token';
@@ -78,6 +98,87 @@ const POPUP_NAME = 'oauth';
 const POPUP_FEATURES = 'width=500,height=600';
 
 const OAUTH_CODE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes for the user to complete the flow
+
+export interface OAuthCallbackParams {
+  code?: string;
+  state?: string;
+  error?: string;
+  pickedFileIds: string[];
+}
+
+export function normalizeOAuthScopes(scopes: readonly string[]): string[] {
+  return Array.from(new Set(scopes.map((scope) => scope.trim()).filter(Boolean))).sort();
+}
+
+function fnv1a32(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+export function oauthStorageKeyForScopes(scopes: readonly string[]): string {
+  const normalized = normalizeOAuthScopes(scopes);
+  if (normalized.length === 0) return LEGACY_TOKEN_KEY;
+  return `${TOKEN_KEY_PREFIX}${fnv1a32(normalized.join('\n'))}`;
+}
+
+function plaintextFallbackKeyForScopes(scopes: readonly string[]): string {
+  return `${LS_KEY_PLAINTEXT_FALLBACK}:${oauthStorageKeyForScopes(scopes)}`;
+}
+
+export function parseOAuthCallbackParams(url: string): OAuthCallbackParams {
+  const parsed = new URL(url, typeof window !== 'undefined' ? window.location.href : 'http://localhost');
+  const pickedRaw = parsed.searchParams.get('picked_file_ids') ?? '';
+  const pickedFileIds = pickedRaw
+    .split(',')
+    .flatMap((part) => part.split(','))
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return {
+    code: parsed.searchParams.get('code') ?? undefined,
+    state: parsed.searchParams.get('state') ?? undefined,
+    error: parsed.searchParams.get('error') ?? undefined,
+    pickedFileIds,
+  };
+}
+
+export function describeOAuthError(error: string): string {
+  switch (error) {
+    case 'redirect_uri_mismatch':
+      return 'redirect_uri_mismatch — the OAuth Client ID is not configured for this redirect URI.';
+    case 'admin_policy_enforced':
+      return 'admin_policy_enforced — a Google Workspace administrator blocked this OAuth scope.';
+    case 'invalid_grant':
+      return 'invalid_grant — the authorization code expired, was already used, or the refresh token was revoked.';
+    case 'access_denied':
+      return 'access_denied — Google authorization was cancelled or denied.';
+    default:
+      return error;
+  }
+}
+
+export function buildOAuthAuthorizeUrl(options: OAuthConfig & { codeChallenge: string; state: string }): string {
+  const authorizeUrl = new URL(GOOGLE_AUTH_URL);
+  authorizeUrl.searchParams.set('client_id', options.clientId);
+  authorizeUrl.searchParams.set('redirect_uri', options.redirectUri);
+  authorizeUrl.searchParams.set('response_type', 'code');
+  authorizeUrl.searchParams.set('scope', normalizeOAuthScopes(options.scopes).join(' '));
+  authorizeUrl.searchParams.set('code_challenge', options.codeChallenge);
+  authorizeUrl.searchParams.set('code_challenge_method', 'S256');
+  authorizeUrl.searchParams.set('state', options.state);
+  authorizeUrl.searchParams.set('access_type', 'offline');
+  authorizeUrl.searchParams.set('prompt', 'consent');
+  authorizeUrl.searchParams.set('include_granted_scopes', 'true');
+
+  for (const [key, value] of Object.entries(options.extraAuthorizeParams ?? {})) {
+    if (value.length > 0) authorizeUrl.searchParams.set(key, value);
+  }
+
+  return authorizeUrl.toString();
+}
 
 // ---------------------------------------------------------------------------
 // PKCE helpers
@@ -228,41 +329,41 @@ function getDb(): Promise<IDBPDatabase> {
     return dbPromise;
 }
 
-async function persistTokenSet(tokens: TokenSet): Promise<void> {
-    const key = await getOrCreateEncryptionKey();
-    if (key) {
-        try {
-            const blob = await encryptTokenSet(key, tokens);
-            const db = await getDb();
-            await db.put(STORE_NAME, blob, TOKEN_KEY);
-            // Clean up any stale plaintext fallback.
-            try {
-                localStorage.removeItem(LS_KEY_PLAINTEXT_FALLBACK);
-            } catch {
-                /* ignore */
-            }
-            return;
-        } catch (error) {
-            // IndexedDB failed (blocked by browser, quota exceeded, etc.)
-            console.warn('[OAuth] IndexedDB write failed, falling back to plaintext storage', error);
-            // Fall through to plaintext fallback below
-        }
-    }
-
-    // Web Crypto unavailable OR IndexedDB write failed — use plaintext storage.
-    console.warn('[OAuth] storing tokens as plaintext (Web Crypto unavailable or IndexedDB blocked)');
+async function persistTokenSet(tokens: TokenSet, scopes: readonly string[]): Promise<void> {
+  const tokenKey = oauthStorageKeyForScopes(scopes);
+  const plaintextKey = plaintextFallbackKeyForScopes(scopes);
+  const key = await getOrCreateEncryptionKey();
+  if (key) {
     try {
-        localStorage.setItem(LS_KEY_PLAINTEXT_FALLBACK, JSON.stringify(tokens));
+      const blob = await encryptTokenSet(key, tokens);
+      const db = await getDb();
+      await db.put(STORE_NAME, blob, tokenKey);
+      try {
+        localStorage.removeItem(plaintextKey);
+        localStorage.removeItem(LS_KEY_PLAINTEXT_FALLBACK);
+      } catch {
+        /* ignore */
+      }
+      return;
     } catch (error) {
-        console.error('[OAuth] localStorage token write failed', error);
-        throw new Error(`OAuth token persistence failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn('[OAuth] IndexedDB write failed, falling back to plaintext storage', error);
     }
-}
+  }
 
-async function loadTokenSet(): Promise<TokenSet | null> {
+  console.warn('[OAuth] storing tokens as plaintext (Web Crypto unavailable or IndexedDB blocked)');
+  try {
+    localStorage.setItem(plaintextKey, JSON.stringify(tokens));
+  } catch (error) {
+    console.error('[OAuth] localStorage token write failed', error);
+    throw new Error(`OAuth token persistence failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+async function loadTokenSet(scopes: readonly string[]): Promise<TokenSet | null> {
+  const tokenKey = oauthStorageKeyForScopes(scopes);
+  const plaintextKey = plaintextFallbackKeyForScopes(scopes);
   try {
     const db = await getDb();
-    const stored = (await db.get(STORE_NAME, TOKEN_KEY)) as EncryptedBlob | TokenSet | undefined;
+    const stored = (await db.get(STORE_NAME, tokenKey)) as EncryptedBlob | TokenSet | undefined;
     if (stored && typeof stored === 'object' && 'ct' in stored && 'iv' in stored) {
       const key = await getOrCreateEncryptionKey();
       if (!key) {
@@ -274,12 +375,28 @@ async function loadTokenSet(): Promise<TokenSet | null> {
     if (stored && typeof stored === 'object' && 'accessToken' in stored) {
       return stored as TokenSet;
     }
+    const legacy = (await db.get(STORE_NAME, LEGACY_TOKEN_KEY)) as EncryptedBlob | TokenSet | undefined;
+    if (legacy && typeof legacy === 'object' && 'ct' in legacy && 'iv' in legacy) {
+      const key = await getOrCreateEncryptionKey();
+      if (key) {
+        const migrated = await decryptTokenSet(key, legacy);
+        await persistTokenSet(migrated, scopes);
+        await db.delete(STORE_NAME, LEGACY_TOKEN_KEY);
+        return migrated;
+      }
+    }
+    if (legacy && typeof legacy === 'object' && 'accessToken' in legacy) {
+      const migrated = legacy as TokenSet;
+      await persistTokenSet(migrated, scopes);
+      await db.delete(STORE_NAME, LEGACY_TOKEN_KEY);
+      return migrated;
+    }
   } catch (error) {
     console.warn('OAuth: failed to read encrypted token from IndexedDB', error);
   }
 
   try {
-    const raw = localStorage.getItem(LS_KEY_PLAINTEXT_FALLBACK);
+    const raw = localStorage.getItem(plaintextKey) ?? localStorage.getItem(LS_KEY_PLAINTEXT_FALLBACK);
     if (raw) {
       return JSON.parse(raw) as TokenSet;
     }
@@ -290,14 +407,20 @@ async function loadTokenSet(): Promise<TokenSet | null> {
   return null;
 }
 
-async function clearTokenSet(): Promise<void> {
+async function clearTokenSet(scopes?: readonly string[]): Promise<void> {
   try {
     const db = await getDb();
-    await db.delete(STORE_NAME, TOKEN_KEY);
+    if (scopes && scopes.length > 0) {
+      await db.delete(STORE_NAME, oauthStorageKeyForScopes(scopes));
+    }
+    await db.delete(STORE_NAME, LEGACY_TOKEN_KEY);
   } catch (error) {
     console.warn('OAuth: failed to clear IndexedDB token', error);
   }
   try {
+    if (scopes && scopes.length > 0) {
+      localStorage.removeItem(plaintextFallbackKeyForScopes(scopes));
+    }
     localStorage.removeItem(LS_KEY_PLAINTEXT_FALLBACK);
   } catch {
     /* ignore */
@@ -326,7 +449,15 @@ async function postTokenEndpoint(body: URLSearchParams): Promise<GoogleTokenResp
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    throw new Error(`OAuth token endpoint returned ${response.status}: ${text}`);
+    let message = text;
+    try {
+      const parsed = JSON.parse(text) as { error?: string; error_description?: string };
+      message = parsed.error ? describeOAuthError(parsed.error) : text;
+      if (parsed.error_description) message += ` — ${parsed.error_description}`;
+    } catch {
+      /* keep raw text */
+    }
+    throw new Error(`OAuth token endpoint returned ${response.status}: ${message}`);
   }
 
   return (await response.json()) as GoogleTokenResponse;
@@ -363,7 +494,8 @@ async function exchangeCodeForTokens(
     redirect_uri: config.redirectUri,
   });
   const response = await postTokenEndpoint(body);
-  return tokenResponseToSet(response);}
+  return tokenResponseToSet(response);
+}
 
 async function refreshAccessToken(tokens: TokenSet, config: OAuthConfig): Promise<TokenSet> {
   if (!tokens.refreshToken) {
@@ -414,19 +546,13 @@ async function initiateOAuth(config: OAuthConfig): Promise<TokenSet> {
 
   pendingFlow = { verifier, state, config };
 
-  const authorizeUrl = new URL(GOOGLE_AUTH_URL);
-  authorizeUrl.searchParams.set('client_id', config.clientId);
-  authorizeUrl.searchParams.set('redirect_uri', config.redirectUri);
-  authorizeUrl.searchParams.set('response_type', 'code');
-  authorizeUrl.searchParams.set('scope', config.scopes.join(' '));
-  authorizeUrl.searchParams.set('code_challenge', challenge);
-  authorizeUrl.searchParams.set('code_challenge_method', 'S256');
-  authorizeUrl.searchParams.set('state', state);
-  authorizeUrl.searchParams.set('access_type', 'offline');
-  authorizeUrl.searchParams.set('prompt', 'consent');
-  authorizeUrl.searchParams.set('include_granted_scopes', 'true');
+  const authorizeUrl = buildOAuthAuthorizeUrl({
+    ...config,
+    codeChallenge: challenge,
+    state,
+  });
 
-  const popup = window.open(authorizeUrl.toString(), POPUP_NAME, POPUP_FEATURES);
+  const popup = window.open(authorizeUrl, POPUP_NAME, POPUP_FEATURES);
   if (!popup) {
     pendingFlow = null;
     throw new Error('OAuth: unable to open popup — it may have been blocked by the browser.');
@@ -460,12 +586,12 @@ async function initiateOAuth(config: OAuthConfig): Promise<TokenSet> {
 
     channel.onmessage = async (event: MessageEvent) => {
       if (settled) return;
-      const data = event.data as { code?: string; state?: string; error?: string } | undefined;
+      const data = event.data as { code?: string; state?: string; error?: string; pickedFileIds?: string[]; picked_file_ids?: string } | undefined;
       if (!data) return;
 
       if (data.error) {
         cleanup();
-        reject(new Error(`OAuth: authorization failed — ${data.error}`));
+        reject(new Error(`OAuth: authorization failed — ${describeOAuthError(data.error)}`));
         return;
       }
 
@@ -482,6 +608,12 @@ async function initiateOAuth(config: OAuthConfig): Promise<TokenSet> {
     try {
      console.log("[OAuth] Starting token exchange for code of length:", data.code.length);
      const tokens = await exchangeCodeForTokens(data.code, verifier, config);
+     const pickedFileIds = Array.isArray(data.pickedFileIds)
+       ? data.pickedFileIds
+       : typeof data.picked_file_ids === 'string'
+         ? data.picked_file_ids.split(',').map((id) => id.trim()).filter(Boolean)
+         : [];
+     if (pickedFileIds.length > 0) tokens.pickedFileIds = pickedFileIds;
      console.log("[OAuth] Token exchange complete. Got tokens:", {
       hasAccessToken: !!tokens.accessToken,
       hasRefreshToken: !!tokens.refreshToken,
@@ -489,7 +621,7 @@ async function initiateOAuth(config: OAuthConfig): Promise<TokenSet> {
       accessTokenLength: tokens.accessToken?.length,
      });
      console.log("[OAuth] About to call persistTokenSet...");
-     await persistTokenSet(tokens);
+     await persistTokenSet(tokens, config.scopes);
      console.log("[OAuth] persistTokenSet completed successfully");
      cleanup();
      try {
@@ -528,13 +660,13 @@ async function handleCallback(code: string, config: OAuthConfig): Promise<TokenS
   }
 
   const tokens = await exchangeCodeForTokens(code, verifier, config);
-  await persistTokenSet(tokens);
+  await persistTokenSet(tokens, config.scopes);
   pendingFlow = null;
   return tokens;
 }
 
 async function getAccessToken(config: OAuthConfig): Promise<string | null> {
-  const tokens = await loadTokenSet();
+  const tokens = await loadTokenSet(config.scopes);
   if (!tokens) {
     return null;
   }
@@ -551,7 +683,7 @@ async function getAccessToken(config: OAuthConfig): Promise<string | null> {
 
   try {
     const refreshed = await refreshAccessToken(tokens, config);
-    await persistTokenSet(refreshed);
+    await persistTokenSet(refreshed, config.scopes);
     return refreshed.accessToken;
   } catch (error) {
     console.warn('OAuth: token refresh failed', error);
@@ -559,13 +691,13 @@ async function getAccessToken(config: OAuthConfig): Promise<string | null> {
   }
 }
 
-async function signOut(): Promise<void> {
-  await clearTokenSet();
+async function signOut(config?: OAuthConfig): Promise<void> {
+  await clearTokenSet(config?.scopes);
   pendingFlow = null;
 }
 
-async function isConnected(): Promise<boolean> {
-  const tokens = await loadTokenSet();
+async function isConnected(config?: OAuthConfig): Promise<boolean> {
+  const tokens = await loadTokenSet(config?.scopes ?? OAUTH_SCOPES);
   if (!tokens) return false;
   // Consider connected if we have a refresh token, even if the access token is expired.
   return Boolean(tokens.refreshToken || tokens.expiresAt > Date.now());

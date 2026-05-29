@@ -6,6 +6,7 @@ import { DEFAULT_MODEL_IDS } from '../lib/model-catalog';
 import { fetchAvailableGeminiModels, getModelOptionsForCapability, getRecommendedModelChanges } from '../lib/model-refresh';
 import { costLedger, type LedgerEntry } from '../lib/cost-ledger';
 import { fetchProjectBillingInfo } from '../lib/cloud-billing';
+import { resolveMcpHttpBase } from '../lib/mcp';
 
 interface SettingsProps {
   onClose: () => void;
@@ -153,7 +154,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
   const [mcpStatusError, setMcpStatusError] = useState<string | null>(null);
   const [desktopCommanderConfig, setDesktopCommanderConfig] = useState<Record<string, any> | null>(null);
   const [allowedDirectoriesDraft, setAllowedDirectoriesDraft] = useState('');
-  const MCP_API_BASE = 'http://127.0.0.1:13001';
+  const MCP_API_BASE = resolveMcpHttpBase();
 
   const refreshMcpStatus = async () => {
     setMcpStatusError(null);
@@ -282,7 +283,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
       <div className="bg-white dark:bg-[#1e1f20] rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">System Settings</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
+          <button onClick={onClose} aria-label="Close settings" className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
             <X size={24} />
           </button>
         </div>
@@ -293,8 +294,9 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
             <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">API Configuration</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-2">Gemini API Key</label>
+                <label htmlFor="settings-gemini-api-key" className="block text-xs font-medium text-gray-500 mb-2">Gemini API Key</label>
                 <input
+                  id="settings-gemini-api-key"
                   type="password"
                   value={apiKeyDraft}
                   onChange={(e) => { setApiKeyDraft(e.target.value); setApiSaved(false); }}
@@ -304,8 +306,9 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                 <p className="text-xs text-gray-500 mt-1">This is stored locally and securely used for API requests.</p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-2">Google OAuth Client ID</label>
+                <label htmlFor="settings-google-oauth-client-id" className="block text-xs font-medium text-gray-500 mb-2">Google OAuth Client ID</label>
                 <input
+                  id="settings-google-oauth-client-id"
                   type="text"
                   value={clientIdDraft}
                   onChange={(e) => { setClientIdDraft(e.target.value); setApiSaved(false); }}
@@ -389,6 +392,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                 <label className="relative inline-flex items-center cursor-pointer mt-1">
                   <input
                     type="checkbox"
+                    aria-label="Enable directory lock"
                     checked={!!settings.directoryLock?.enabled}
                     onChange={(e) => updateSetting('directoryLock', { enabled: e.target.checked, rootPath: settings.directoryLock?.rootPath || '' })}
                     className="sr-only peer"
@@ -397,8 +401,9 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                 </label>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Locked root path</label>
+                <label htmlFor="settings-locked-root-path" className="block text-xs text-gray-500 mb-1">Locked root path</label>
                 <input
+                  id="settings-locked-root-path"
                   type="text"
                   value={settings.directoryLock?.rootPath || ''}
                   onChange={(e) => updateSetting('directoryLock', { enabled: !!settings.directoryLock?.enabled, rootPath: e.target.value })}
@@ -427,7 +432,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                   </div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" checked={settings.googleDriveEnabled} onChange={(e) => updateSetting('googleDriveEnabled', e.target.checked)} className="sr-only peer" />
+                  <input type="checkbox" aria-label="Enable Google Drive sync" checked={settings.googleDriveEnabled} onChange={(e) => updateSetting('googleDriveEnabled', e.target.checked)} className="sr-only peer" />
                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
                 </label>
               </div>
@@ -439,7 +444,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                     <div className="text-xs text-gray-500">Automatically upload every new artifact to GEMINI/Artifacts in Drive</div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" checked={settings.autoSyncArtifacts} onChange={(e) => updateSetting('autoSyncArtifacts', e.target.checked)} className="sr-only peer" />
+                    <input type="checkbox" aria-label="Auto-sync artifacts to Drive" checked={settings.autoSyncArtifacts} onChange={(e) => updateSetting('autoSyncArtifacts', e.target.checked)} className="sr-only peer" />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
                   </label>
                 </div>
@@ -456,7 +461,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                   </div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" checked={settings.notebookLmEnabled} onChange={(e) => updateSetting('notebookLmEnabled', e.target.checked)} className="sr-only peer" />
+                  <input type="checkbox" aria-label="Enable NotebookLM" checked={settings.notebookLmEnabled} onChange={(e) => updateSetting('notebookLmEnabled', e.target.checked)} className="sr-only peer" />
                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
                 </label>
               </div>
@@ -472,7 +477,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                   </div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" checked={settings.searchEnabled} onChange={(e) => updateSetting('searchEnabled', e.target.checked)} className="sr-only peer" />
+                  <input type="checkbox" aria-label="Enable Google Search grounding" checked={settings.searchEnabled} onChange={(e) => updateSetting('searchEnabled', e.target.checked)} className="sr-only peer" />
                   <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
                 </label>
               </div>
@@ -500,8 +505,9 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                 </button>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">Desktop Commander allowed directories</label>
+                <label htmlFor="settings-dc-allowed-directories" className="block text-xs text-gray-500 mb-1">Desktop Commander allowed directories</label>
                 <textarea
+                  id="settings-dc-allowed-directories"
                   value={allowedDirectoriesDraft}
                   onChange={(e) => setAllowedDirectoriesDraft(e.target.value)}
                   placeholder="One absolute path per line. Empty means full filesystem access in Desktop Commander."
@@ -530,8 +536,9 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
               {settings.mcpServers?.map((server, index) => (
                 <div key={server.id} className="p-4 bg-gray-50 dark:bg-[#131314] rounded-xl border border-gray-100 dark:border-gray-800">
                   <div className="flex justify-between items-center mb-2">
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
+                      aria-label="MCP server name"
                       value={server.name}
                       onChange={(e) => {
                         const newServers = [...settings.mcpServers];
@@ -542,7 +549,8 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                       placeholder="Server Name"
                     />
                     <div className="flex items-center gap-2">
-                      <select 
+                      <select
+                        aria-label="MCP server type"
                         value={server.type}
                         onChange={(e) => {
                           const newServers = [...settings.mcpServers];
@@ -556,9 +564,10 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                         <option value="sse">sse</option>
                       </select>
                       <label className="relative inline-flex items-center cursor-pointer ml-2">
-                        <input 
-                          type="checkbox" 
-                          checked={server.enabled} 
+                        <input
+                          type="checkbox"
+                          aria-label="Toggle MCP server enabled"
+                          checked={server.enabled}
                           onChange={(e) => {
                             const newServers = [...settings.mcpServers];
                             newServers[index] = { ...server, enabled: e.target.checked };
@@ -573,6 +582,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                           const newServers = settings.mcpServers.filter((_, i) => i !== index);
                           updateSetting('mcpServers', newServers);
                         }}
+                        aria-label="Delete MCP server"
                         className="text-red-500 hover:text-red-700 ml-2"
                       >
                         <X size={16} />
@@ -583,9 +593,10 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                   {server.type === 'stdio' ? (
                     <div className="space-y-2 mt-3">
                       <div>
-                        <label className="block text-xs text-gray-500 mb-1">Command</label>
+                        <label htmlFor={`mcp-command-${index}`} className="block text-xs text-gray-500 mb-1">Command</label>
                         <input 
                           type="text" 
+                          id={`mcp-command-${index}`}
                           value={server.command || ''}
                           onChange={(e) => {
                             const newServers = [...settings.mcpServers];
@@ -597,9 +608,10 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                         />
                       </div>
                       <div>
-                        <label className="block text-xs text-gray-500 mb-1">Args (comma separated)</label>
+                        <label htmlFor={`mcp-args-${index}`} className="block text-xs text-gray-500 mb-1">Args (comma separated)</label>
                         <input 
                           type="text" 
+                          id={`mcp-args-${index}`}
                           value={(server.args || []).join(', ')}
                           onChange={(e) => {
                             const newServers = [...settings.mcpServers];
@@ -613,9 +625,10 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                     </div>
                   ) : (
                     <div className="mt-3">
-                      <label className="block text-xs text-gray-500 mb-1">URL</label>
+                      <label htmlFor={`mcp-url-${index}`} className="block text-xs text-gray-500 mb-1">URL</label>
                       <input 
                         type="text" 
+                        id={`mcp-url-${index}`}
                         value={server.url || ''}
                         onChange={(e) => {
                           const newServers = [...settings.mcpServers];
@@ -781,10 +794,11 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                 const selectValue = isCustom ? CUSTOM_MODEL_SENTINEL : currentValue;
                 return (
                   <div key={capability}>
-                    <label className="block text-xs font-medium text-gray-500 mb-2">
+                    <label htmlFor={`model-${capability}`} className="block text-xs font-medium text-gray-500 mb-2">
                       {MODEL_CAPABILITY_LABELS[capability]}
                     </label>
                     <select
+                      id={`model-${capability}`}
                       value={selectValue}
                       onChange={(e) => {
                         const next = e.target.value;
@@ -808,6 +822,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                         type="text"
                         value={currentValue}
                         onChange={(e) => updateModel(capability, e.target.value)}
+                        aria-label={`Custom model id for ${MODEL_CAPABILITY_LABELS[capability]}`}
                         placeholder="Enter custom model id"
                         className="mt-2 w-full px-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-100 dark:border-gray-800 rounded-lg text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
@@ -817,10 +832,11 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
               })}
 
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-2">
+                <label htmlFor="settings-thinking-budget-text" className="block text-xs font-medium text-gray-500 mb-2">
                   Chat thinking budget ({settings.thinkingBudgets?.text ?? 8192} tokens)
                 </label>
                 <input
+                  id="settings-thinking-budget-text"
                   type="range"
                   min={0}
                   max={32768}
@@ -831,10 +847,11 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-2">
+                <label htmlFor="settings-thinking-budget-vision" className="block text-xs font-medium text-gray-500 mb-2">
                   Vision thinking budget ({settings.thinkingBudgets?.vision ?? 4096} tokens)
                 </label>
                 <input
+                  id="settings-thinking-budget-vision"
                   type="range"
                   min={0}
                   max={32768}
@@ -878,8 +895,9 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-2">Daily threshold (USD)</label>
+                  <label htmlFor="settings-cost-daily-threshold" className="block text-xs font-medium text-gray-500 mb-2">Daily threshold (USD)</label>
                   <input
+                    id="settings-cost-daily-threshold"
                     type="number"
                     min={0}
                     step={0.5}
@@ -889,8 +907,9 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-2">Monthly threshold (USD)</label>
+                  <label htmlFor="settings-cost-monthly-threshold" className="block text-xs font-medium text-gray-500 mb-2">Monthly threshold (USD)</label>
                   <input
+                    id="settings-cost-monthly-threshold"
                     type="number"
                     min={0}
                     step={1}
@@ -902,8 +921,9 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-2">GCP Project ID</label>
+                <label htmlFor="settings-cost-gcp-project-id" className="block text-xs font-medium text-gray-500 mb-2">GCP Project ID</label>
                 <input
+                  id="settings-cost-gcp-project-id"
                   type="text"
                   value={settings.cost?.gcpProjectId ?? ''}
                   onChange={(e) => updateCost('gcpProjectId', e.target.value)}

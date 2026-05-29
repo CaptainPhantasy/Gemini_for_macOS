@@ -24,17 +24,18 @@ export function PersonalIntelligencePopup({ onClose }: PIProps) {
       <div className="bg-white dark:bg-[#1e1f20] rounded-2xl w-full max-w-md p-6 shadow-2xl">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Personal Intelligence</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+          <button onClick={onClose} aria-label="Close personal intelligence" className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
             <X size={24} />
           </button>
         </div>
         
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="pi-preferences" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               About You (Preferences)
             </label>
             <textarea
+              id="pi-preferences"
               value={pi.preferences}
               onChange={(e) => setPi({ ...pi, preferences: e.target.value })}
               placeholder="What would you like Gemini to know about you to provide better responses?"
@@ -43,10 +44,11 @@ export function PersonalIntelligencePopup({ onClose }: PIProps) {
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            <label htmlFor="pi-instructions" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               How would you like Gemini to respond?
             </label>
             <textarea
+              id="pi-instructions"
               value={pi.instructions}
               onChange={(e) => setPi({ ...pi, instructions: e.target.value })}
               placeholder="E.g., Always use Python for code, keep answers concise..."

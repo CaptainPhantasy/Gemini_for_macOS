@@ -1,5 +1,29 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "GoogleSans";
+  src: url("/vendor/official-gemini/fonts/GoogleSans-Regular.nohints.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GoogleSans";
+  src: url("/vendor/official-gemini/fonts/GoogleSans-Medium.nohints.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GoogleSans";
+  src: url("/vendor/official-gemini/fonts/GoogleSans-Bold.nohints.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @variant dark (&:where(.dark, .dark *));
 
 /* =============================================================
@@ -33,6 +57,7 @@ html {
 }
 
 body {
+  font-family: GoogleSans, Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   /* Kill the gray tap flash on every interactive element. */
   -webkit-tap-highlight-color: transparent;
   /* Tell Safari every non-scroll gesture can be treated as a tap — this

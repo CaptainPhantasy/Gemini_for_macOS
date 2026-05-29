@@ -79,16 +79,17 @@ export function ArtifactLibrary({ onClose, onOpenArtifact }: ArtifactLibraryProp
               />
             </label>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+          <button onClick={onClose} aria-label="Close artifact library" className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
             <X size={24} />
           </button>
         </div>
         
         <div className="mb-4 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <input 
-            type="text" 
-            placeholder="Search artifacts..." 
+          <input
+            type="text"
+            aria-label="Search artifacts"
+            placeholder="Search artifacts..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-200 dark:border-gray-800 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -107,22 +108,23 @@ export function ArtifactLibrary({ onClose, onOpenArtifact }: ArtifactLibraryProp
                 <div className="flex-1">
                   {editingId === artifact.id ? (
                     <div className="flex items-center gap-2">
-                      <input 
-                        type="text" 
-                        value={editTitle} 
+                      <input
+                        type="text"
+                        aria-label="Artifact title"
+                        value={editTitle}
                         onChange={(e) => setEditTitle(e.target.value)}
                         className="px-2 py-1 bg-white dark:bg-[#131314] border border-blue-500 rounded text-sm text-gray-900 dark:text-white"
                         autoFocus
                         onKeyDown={(e) => e.key === 'Enter' && saveEdit(artifact)}
                       />
-                      <button onClick={() => saveEdit(artifact)} className="p-1 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded">
+                      <button onClick={() => saveEdit(artifact)} aria-label="Save title" className="p-1 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded">
                         <Check size={16} />
                       </button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
                       <h3 className="font-medium text-gray-900 dark:text-white cursor-pointer hover:underline" onClick={() => onOpenArtifact(artifact)}>{artifact.title}</h3>
-                      <button onClick={() => startEditing(artifact)} className="p-1 text-gray-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => startEditing(artifact)} aria-label="Rename artifact" className="p-1 text-gray-400 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Edit2 size={14} />
                       </button>
                     </div>

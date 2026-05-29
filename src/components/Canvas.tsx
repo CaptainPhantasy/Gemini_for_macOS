@@ -432,7 +432,7 @@ export function Canvas({ artifact, onClose, settings, drawerOpen, onDrawerOpenCh
           >
             {saved ? <><Check size={16} /> Saved</> : (isSaving ? 'Saving...' : 'Save')}
           </button>
-          <button onClick={onClose} className="p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md">
+          <button onClick={onClose} aria-label="Close canvas" className="p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md">
             <X size={20} />
           </button>
         </div>
@@ -455,6 +455,7 @@ export function Canvas({ artifact, onClose, settings, drawerOpen, onDrawerOpenCh
                 setMediaUrl(null);
                 setMediaType(null);
               }}
+              aria-label="Clear media preview"
               className="p-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 bg-white dark:bg-[#1e1f20] rounded-full shadow-sm"
             >
               <X size={16} />
@@ -505,6 +506,7 @@ export function Canvas({ artifact, onClose, settings, drawerOpen, onDrawerOpenCh
         {artifact?.type !== 'html' && (
         <textarea
           value={content}
+          aria-label="Artifact content editor"
           onChange={(e) => setContent(e.target.value)}
           className="w-full h-full p-4 bg-gray-50 dark:bg-[#131314] text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-800 rounded-lg font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
         />

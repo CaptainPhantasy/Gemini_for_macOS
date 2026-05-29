@@ -23,6 +23,7 @@
   var code = params.get('code');
   var state = params.get('state');
   var error = params.get('error');
+  var pickedFileIds = (params.get('picked_file_ids') || '').split(',').map(function (id) { return id.trim(); }).filter(Boolean);
   var el = document.getElementById('status');
   var sp = document.getElementById('spinner');
 
@@ -42,7 +43,7 @@
 
   try {
     var bc = new BroadcastChannel('gemini-oauth');
-    bc.postMessage({ code: code, state: state || '' });
+    bc.postMessage({ code: code, state: state || '', pickedFileIds: pickedFileIds });
     bc.close();
     sp.style.display = 'none';
     el.className = 'ok';

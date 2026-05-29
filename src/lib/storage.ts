@@ -31,7 +31,7 @@ const LS_PI_KEY = 'gemini-for-macos:personalIntelligence';
 
 const defaultSettings: AppSettings = {
   theme: 'system',
-  autonomyMode: 'yolo',
+  autonomyMode: 'ask',
   directoryLock: {
     enabled: false,
     rootPath: '',

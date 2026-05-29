@@ -39,7 +39,7 @@ export function GemsRegistry({ onClose }: GemsRegistryProps) {
       <div className="bg-white dark:bg-[#1e1f20] rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Gems Registry</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+          <button onClick={onClose} aria-label="Close gems registry" className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
             <X size={24} />
           </button>
         </div>
@@ -58,12 +58,14 @@ export function GemsRegistry({ onClose }: GemsRegistryProps) {
           <h3 className="text-sm font-medium text-gray-900 dark:text-white">Create New Gem</h3>
           <input
             type="text"
+            aria-label="Gem name"
             placeholder="Gem Name"
             value={newGemName}
             onChange={e => setNewGemName(e.target.value)}
             className="w-full p-2 bg-gray-50 dark:bg-[#131314] border border-gray-200 dark:border-gray-800 rounded-lg text-gray-900 dark:text-white"
           />
           <textarea
+            aria-label="System instructions"
             placeholder="System Instructions"
             value={newGemInstruction}
             onChange={e => setNewGemInstruction(e.target.value)}

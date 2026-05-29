@@ -86,7 +86,7 @@ export function ScheduledActions({ onClose, onRunPrompt }: ScheduledActionsProps
       <div className="bg-white dark:bg-[#1e1f20] rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Scheduled Actions</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+          <button onClick={onClose} aria-label="Close scheduled actions" className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
             <X size={24} />
           </button>
         </div>
@@ -184,12 +184,14 @@ export function ScheduledActions({ onClose, onRunPrompt }: ScheduledActionsProps
           <h3 className="text-sm font-medium text-gray-900 dark:text-white">Create New Action</h3>
           <input
             type="text"
+            aria-label="Cron expression"
             placeholder="Cron Expression (e.g., 0 9 * * *)"
             value={cron}
             onChange={e => setCron(e.target.value)}
             className="w-full p-2 bg-gray-50 dark:bg-[#131314] border border-gray-200 dark:border-gray-800 rounded-lg text-gray-900 dark:text-white font-mono"
           />
           <textarea
+            aria-label="Prompt to execute"
             placeholder="Prompt to execute"
             value={prompt}
             onChange={e => setPrompt(e.target.value)}

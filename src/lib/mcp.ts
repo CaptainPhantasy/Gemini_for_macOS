@@ -102,6 +102,27 @@ const RECONNECT_BACKOFF_MS = 30_000;
 /** Number of reconnection attempts before the backoff is capped. */
 const RECONNECT_ATTEMPTS_CAP = 5;
 
+function browserLocation(): Location | null {
+  return typeof window === 'undefined' ? null : window.location;
+}
+
+function isLocalBrowserHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+}
+
+export function resolveMcpHttpBase(): string {
+  const location = browserLocation();
+  if (!location || isLocalBrowserHost(location.hostname)) return 'http://127.0.0.1:13001';
+  return location.origin;
+}
+
+export function resolveMcpWebSocketUrl(): string {
+  const location = browserLocation();
+  if (!location || isLocalBrowserHost(location.hostname)) return 'ws://localhost:13001/mcp';
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${location.host}/mcp`;
+}
+
 export class MCPClient {
   private ws: WebSocket | null = null;
   private messageId = 0;
@@ -122,7 +143,7 @@ export class MCPClient {
   /** Promise that resolves when tools have been loaded (or first attempt fails). */
   private toolsReady: Promise<void> | null = null;
 
-  constructor(private serverUrl: string = 'ws://localhost:13001/mcp') {}
+  constructor(private serverUrl: string = resolveMcpWebSocketUrl()) {}
 
   /**
    * Eagerly connect to the MCP server and load tool definitions.

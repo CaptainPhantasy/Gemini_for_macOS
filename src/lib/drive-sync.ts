@@ -1,5 +1,5 @@
 import { integrations } from './integrations';
-import { oauthHandler, OAUTH_SCOPES } from './oauth-handler';
+import { oauthHandler, GOOGLE_WORKSPACE_SCOPES } from './oauth-handler';
 import { storage } from './storage';
 import type { Artifact } from '../types';
 
@@ -7,7 +7,7 @@ const REDIRECT_URI = 'http://localhost:13000/oauth/callback';
 const DRIVE_FOLDER = 'GEMINI/Artifacts';
 
 function buildOAuthConfig(clientId: string) {
-  return { clientId, redirectUri: REDIRECT_URI, scopes: [...OAUTH_SCOPES] };
+  return { clientId, redirectUri: REDIRECT_URI, scopes: [...GOOGLE_WORKSPACE_SCOPES] };
 }
 
 export interface DriveUploadResult {

@@ -34,28 +34,27 @@ export const backup = {
   restore: async (file: File) => {
     const text = await file.text();
     const data = JSON.parse(text);
+    const runBatch = async <T>(items: T[] | undefined, saveItem: (item: T) => Promise<void>) => {
+      const list = Array.isArray(items) ? items : [];
+      const batchSize = 25;
+      for (let i = 0; i < list.length; i += batchSize) {
+        const chunk = list.slice(i, i + batchSize);
+        await Promise.all(chunk.map((item) => saveItem(item)));
+      }
+    };
 
     if (data.version === 2 || data.indexedDB) {
-      // V2 format: restore IndexedDB tables
       if (data.indexedDB?.threads) {
-        for (const thread of data.indexedDB.threads) {
-          await storage.saveThread(thread);
-        }
+        await runBatch(data.indexedDB.threads, storage.saveThread);
       }
       if (data.indexedDB?.gems) {
-        for (const gem of data.indexedDB.gems) {
-          await storage.saveGem(gem);
-        }
+        await runBatch(data.indexedDB.gems, storage.saveGem);
       }
       if (data.indexedDB?.scheduledActions) {
-        for (const action of data.indexedDB.scheduledActions) {
-          await storage.saveScheduledAction(action);
-        }
+        await runBatch(data.indexedDB.scheduledActions, storage.saveScheduledAction);
       }
       if (data.indexedDB?.artifacts) {
-        for (const artifact of data.indexedDB.artifacts) {
-          await storage.saveArtifact(artifact);
-        }
+        await runBatch(data.indexedDB.artifacts, storage.saveArtifact);
       }
       if (data.settings) {
         await storage.saveSettings(data.settings);
@@ -64,7 +63,6 @@ export const backup = {
         await storage.savePersonalIntelligence(data.personalIntelligence);
       }
     } else {
-      // V1 format (legacy): restore raw localStorage only
       for (const [key, value] of Object.entries(data)) {
         if (typeof value === 'string') {
           localStorage.setItem(key, value);
@@ -75,3 +73,4 @@ export const backup = {
     window.location.reload();
   }
 };
+
