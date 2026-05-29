@@ -79,6 +79,8 @@ CLAUDE.md
 docs/architecture/environment_profile.md
 docs/architecture/site-comparison.md
 docs/dogfood/
+# Deploy/infra config (Caddy/Tailserve reverse-proxy topology + node names)
+ops/
 
 # ─── Test/debug scripts (local-only) ─────────────────────
 scripts/debug/
