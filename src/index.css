@@ -96,10 +96,98 @@ a,
   }
 }
 
-/* The mobile sidebar drawer wrap is always in the tree; CSS only
-   activates the drawer behavior below 768px. */
+/* Mode-aware shell wrappers. App.tsx chooses compact / medium / expanded from
+   viewport width so mobile and tablet are real compositions, not a shrunken
+   desktop grid. */
+.app-shell {
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.main-shell-content {
+  min-height: 0;
+  min-width: 0;
+}
+
+.shell-compact {
+  position: relative;
+  display: flex;
+}
+
+.shell-compact .main-shell-content {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.shell-medium {
+  display: grid;
+  grid-template-columns: minmax(248px, 280px) minmax(0, 1fr);
+  position: relative;
+}
+
+.shell-medium .tablet-sidebar-pane {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.shell-expanded {
+  min-width: 0;
+}
+
 .mobile-sidebar-wrap {
   display: contents;
+}
+
+.shell-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.compact-canvas-sheet,
+.tablet-canvas-sheet {
+  position: fixed;
+  z-index: 48;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 0 48px rgba(0, 0, 0, 0.45);
+}
+
+.dark .compact-canvas-sheet,
+.dark .tablet-canvas-sheet {
+  background: #1e1f20;
+}
+
+.compact-canvas-sheet {
+  inset: 0;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.tablet-canvas-sheet {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(58vw, 620px);
+  min-width: min(520px, 100vw);
+}
+
+.compact-canvas-backdrop,
+.tablet-canvas-backdrop {
+  z-index: 47;
+}
+
+.shell-compact .mobile-hamburger,
+.shell-medium button,
+.shell-compact button {
+  min-height: 44px;
+  min-width: 44px;
 }
 
 @media (max-width: 767px) {
@@ -132,13 +220,23 @@ a,
     user-select: text;
   }
 
-  /* --- Sidebar → drawer --- */
-  .mobile-sidebar-wrap {
-    display: block;
+  .shell-compact .main-shell-content {
+    padding-top: calc(max(env(safe-area-inset-top), 0.75rem) + 2.75rem);
   }
-  .mobile-sidebar-wrap > aside,
-  .mobile-sidebar-wrap > div[class*="w-[280px]"],
-  .mobile-sidebar-wrap > div {
+
+  /* --- Sidebar → compact drawer --- */
+  .shell-compact .mobile-sidebar-wrap {
+    display: block;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .shell-compact .mobile-sidebar-wrap.open {
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .shell-compact .mobile-sidebar-wrap > aside,
+  .shell-compact .mobile-sidebar-wrap > div[class*="w-[280px]"],
+  .shell-compact .mobile-sidebar-wrap > div {
     position: fixed !important;
     top: 0;
     left: 0;
@@ -146,7 +244,7 @@ a,
     width: min(86vw, 320px) !important;
     max-width: 320px;
     height: 100dvh !important;
-    z-index: 40;
+    z-index: 50;
     transform: translateX(-102%);
     transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
     padding-top: env(safe-area-inset-top);
@@ -154,37 +252,33 @@ a,
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
-  .mobile-sidebar-wrap.open > aside,
-  .mobile-sidebar-wrap.open > div[class*="w-[280px]"],
-  .mobile-sidebar-wrap.open > div {
+  .shell-compact .mobile-sidebar-wrap.open > aside,
+  .shell-compact .mobile-sidebar-wrap.open > div[class*="w-[280px]"],
+  .shell-compact .mobile-sidebar-wrap.open > div {
     transform: translateX(0);
     box-shadow: 0 0 48px rgba(0, 0, 0, 0.7);
   }
 
-  /* Mobile hamburger + backdrop are rendered by App.tsx but styled here. */
-  .mobile-hamburger {
+  /* Compact hamburger + backdrop are rendered by App.tsx. */
+  .shell-compact .mobile-hamburger {
     position: fixed;
     top: max(env(safe-area-inset-top), 0.75rem);
     left: 0.75rem;
-    z-index: 50;
+    z-index: 55;
     display: inline-flex !important;
     align-items: center;
     justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 0.75rem;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.875rem;
     background: rgba(17, 17, 24, 0.75);
     color: #fff;
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   }
-  .mobile-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 35;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(4px);
+  .shell-compact .mobile-backdrop {
+    z-index: 45;
   }
 
   /* --- Modals fullscreen on mobile --- */
@@ -206,11 +300,40 @@ a,
   }
 }
 
-/* Desktop default: hide mobile-only UI. */
+@media (min-width: 768px) and (max-width: 1199px) {
+  .shell-medium .main-shell-content {
+    min-width: 0;
+    border-left: 1px solid rgba(229, 231, 235, 0.7);
+  }
+
+  .dark .shell-medium .main-shell-content {
+    border-left-color: rgba(31, 41, 55, 0.9);
+  }
+
+  .shell-medium .mobile-sidebar-wrap {
+    display: contents;
+  }
+
+  .shell-medium .tablet-canvas-backdrop {
+    background: rgba(0, 0, 0, 0.32);
+  }
+}
+
+/* Hide compact-only UI outside compact mode. */
 @media (min-width: 768px) {
   .mobile-hamburger,
   .mobile-backdrop {
     display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell,
+  .mobile-sidebar-wrap > aside,
+  .compact-canvas-sheet,
+  .tablet-canvas-sheet {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
   }
 }
 

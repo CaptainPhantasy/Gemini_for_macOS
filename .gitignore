@@ -30,6 +30,7 @@ docs/screenshots/
 test-results.json
 test-report.txt
 test-results/
+playwright-report/
 
 # ─── Ephemeral tool state & orchestration ────────────────
 .pi/

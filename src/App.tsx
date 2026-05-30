@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Chat } from './components/Chat';
 import { Canvas } from './components/Canvas';
@@ -36,6 +36,7 @@ import { selectModel } from './lib/model-orchestrator';
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { exportThreadAsMarkdown } from "./lib/thread-export";
+import { getShellMode, normalizeShellDrawersForMode, type ShellMode } from './lib/shell-mode';
 const MODEL_CONTEXT_MESSAGE_LIMIT = 40;
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -57,9 +58,11 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(storage.getSettings());
 
-  // Mobile sidebar drawer state. The CSS in index.css handles the slide-in
-  // animation and only activates below 768px — on desktop this state is a
-  // no-op because `.mobile-sidebar-wrap` collapses to `display: contents`.
+  // Shell mode is viewport-derived, not user-agent-derived. The wrappers below
+  // choose compact/mobile, medium/tablet, or expanded/desktop composition.
+  const [shellMode, setShellMode] = useState<ShellMode>(() => (
+    typeof window === 'undefined' ? 'expanded' : getShellMode(window.innerWidth)
+  ));
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [navDrawerOpen, setNavDrawerOpen] = useState(false);
   const [canvasDrawerOpen, setCanvasDrawerOpen] = useState(false);
@@ -67,8 +70,40 @@ export default function App() {
   const canvasRailClosedWidth = 56;
   const navRailOpenWidth = 'min(300px, calc(100dvw - 112px))';
   const canvasRailOpenWidth = 'clamp(320px, 50dvw, calc(100dvw - 112px))';
-  const closeMobileSidebar = () => setMobileSidebarOpen(false);
-  // Wrap any sidebar callback so picking an item also closes the drawer.
+  const compactMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const previousShellModeRef = useRef<ShellMode>(shellMode);
+  const resizeFrameRef = useRef<number | null>(null);
+  const lastOverlayTriggerRef = useRef<HTMLElement | null>(null);
+
+  const rememberOverlayTrigger = () => {
+    const activeElement = document.activeElement;
+    lastOverlayTriggerRef.current = activeElement instanceof HTMLElement ? activeElement : null;
+  };
+
+  const closeMobileSidebar = () => {
+    setMobileSidebarOpen(false);
+    if (shellMode === 'compact') {
+      requestAnimationFrame(() => compactMenuButtonRef.current?.focus());
+    }
+  };
+  const openMobileSidebar = () => {
+    rememberOverlayTrigger();
+    setMobileSidebarOpen(true);
+  };
+  const closeCanvasPanel = () => {
+    setActiveArtifact(null);
+    if (shellMode !== 'expanded') {
+      requestAnimationFrame(() => lastOverlayTriggerRef.current?.focus());
+    }
+  };
+  const openArtifactInShell = (artifact: Artifact) => {
+    rememberOverlayTrigger();
+    setActiveArtifact(artifact);
+    if (shellMode === 'expanded') {
+      setCanvasDrawerOpen(true);
+    }
+  };
+  // Wrap any sidebar callback so picking an item also closes the compact drawer.
   const whileClosingDrawer = (fn: () => void) => () => {
     closeMobileSidebar();
     fn();
@@ -118,6 +153,60 @@ export default function App() {
       });
     });
   }, [settings.autonomyMode, settings.mcpServers, settings.directoryLock]);
+
+  useEffect(() => {
+    const syncShellMode = () => {
+      if (resizeFrameRef.current != null) return;
+      resizeFrameRef.current = requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        setShellMode(getShellMode(window.innerWidth));
+      });
+    };
+
+    window.addEventListener('resize', syncShellMode);
+    return () => {
+      window.removeEventListener('resize', syncShellMode);
+      if (resizeFrameRef.current != null) {
+        cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (previousShellModeRef.current === shellMode) return;
+
+    previousShellModeRef.current = shellMode;
+    const normalized = normalizeShellDrawersForMode(shellMode, {
+      mobileSidebarOpen,
+      navDrawerOpen,
+      canvasDrawerOpen,
+    });
+
+    setMobileSidebarOpen(normalized.mobileSidebarOpen);
+    setNavDrawerOpen(normalized.navDrawerOpen);
+    setCanvasDrawerOpen(normalized.canvasDrawerOpen);
+  }, [shellMode]);
+
+  useEffect(() => {
+    const closeTransientShellLayer = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+
+      if (shellMode === 'compact' && mobileSidebarOpen) {
+        event.preventDefault();
+        closeMobileSidebar();
+        return;
+      }
+
+      if ((shellMode === 'compact' || shellMode === 'medium') && activeArtifact) {
+        event.preventDefault();
+        closeCanvasPanel();
+      }
+    };
+
+    window.addEventListener('keydown', closeTransientShellLayer);
+    return () => window.removeEventListener('keydown', closeTransientShellLayer);
+  }, [activeArtifact, mobileSidebarOpen, shellMode]);
 
   useEffect(() => {
     const initStorage = async () => {
@@ -589,7 +678,7 @@ export default function App() {
 
       // Automatically open the first artifact in the Canvas
       if (detectedArtifacts.length > 0) {
-        setActiveArtifact(detectedArtifacts[0]);
+        openArtifactInShell(detectedArtifacts[0]);
       }
     } catch (error) {
       console.error('Error generating content:', error);
@@ -637,115 +726,101 @@ export default function App() {
     }
   };
 
-  if (showSplash) {
-    return <SplashScreen onComplete={() => setShowSplash(false)} />;
-  }
-
-  return (
-    <div
-      className="grid h-dvh max-h-dvh min-h-0 w-full overflow-hidden bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 font-sans transition-[grid-template-columns] duration-300 ease-in-out"
-      style={{
-        gridTemplateColumns: `${navDrawerOpen ? navRailOpenWidth : `${navRailClosedWidth}px`} minmax(0, 1fr) ${canvasDrawerOpen ? canvasRailOpenWidth : `${canvasRailClosedWidth}px`}`,
-      }}
+  const renderSkipLink = () => (
+    <a
+      href="#main-content"
+      className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[200] focus:rounded-lg focus:bg-blue-600 focus:px-4 focus:py-2 focus:text-white focus:shadow-lg"
     >
-      {/* Skip link — first focusable element so keyboard users can bypass the
-          nav rail and jump straight to the chat. Visually hidden until focused. */}
-      <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[200] focus:rounded-lg focus:bg-blue-600 focus:px-4 focus:py-2 focus:text-white focus:shadow-lg"
-      >
-        Skip to main content
-      </a>
-      {/* Feature 12: Offline indicator */}
-      <OfflineIndicator />
-      {/* Mobile hamburger — hidden on desktop via CSS media query. */}
-      <button
-        type="button"
-        className="mobile-hamburger"
-        aria-label="Open sidebar"
-        onClick={() => setMobileSidebarOpen(true)}
-      >
-        <Menu size={20} />
-      </button>
+      Skip to main content
+    </a>
+  );
 
-      {/* Mobile backdrop — only rendered when drawer is open. Desktop CSS
-          hides it unconditionally. */}
-      {mobileSidebarOpen && (
-        <div
-          role="presentation"
-          className="mobile-backdrop"
-          onClick={closeMobileSidebar}
-        />
-      )}
+  const renderSidebar = (
+    drawerOpen: boolean,
+    onDrawerOpenChange: (open: boolean) => void,
+  ) => (
+    <Sidebar
+      threads={threads}
+      activeThreadId={activeThreadId}
+      onSelectThread={(id) => {
+        closeMobileSidebar();
+        setActiveThreadId(id);
+        setActiveArtifact(null);
+      }}
+      onNewThread={whileClosingDrawer(handleNewThread)}
+      onOpenSettings={whileClosingDrawer(() => setShowSettings(true))}
+      onOpenGems={whileClosingDrawer(() => setShowGems(true))}
+      onOpenSchedule={whileClosingDrawer(() => setShowSchedule(true))}
+      onOpenPI={whileClosingDrawer(() => setShowPI(true))}
+      onOpenArtifacts={whileClosingDrawer(() => setShowArtifacts(true))}
+      onOpenLiveMode={whileClosingDrawer(() => setShowLiveMode(true))}
+      onOpenIntegrations={whileClosingDrawer(() => setShowIntegrations(true))}
+      onOpenHelp={whileClosingDrawer(() => setShowHelp(true))}
+      onOpenShortcutEditor={whileClosingDrawer(() => setShowShortcutEditor(true))}
+      onDeleteThread={handleDeleteThread}
+      onRenameThread={handleRenameThread}
+      onPinThread={handlePinThread}
+      onExportThread={handleExportThread}
+      onOpenArtifact={(artifact, threadId) => {
+        closeMobileSidebar();
+        setActiveThreadId(threadId);
+        openArtifactInShell(artifact);
+      }}
+      drawerOpen={drawerOpen}
+      onDrawerOpenChange={onDrawerOpenChange}
+    />
+  );
 
-      <div className={`mobile-sidebar-wrap ${mobileSidebarOpen ? 'open' : ''}`}>
-        <Sidebar
-          threads={threads}
-          activeThreadId={activeThreadId}
-          onSelectThread={(id) => {
-            closeMobileSidebar();
-            setActiveThreadId(id);
-            setActiveArtifact(null);
-          }}
-          onNewThread={whileClosingDrawer(handleNewThread)}
-          onOpenSettings={whileClosingDrawer(() => setShowSettings(true))}
-          onOpenGems={whileClosingDrawer(() => setShowGems(true))}
-          onOpenSchedule={whileClosingDrawer(() => setShowSchedule(true))}
-          onOpenPI={whileClosingDrawer(() => setShowPI(true))}
-          onOpenArtifacts={whileClosingDrawer(() => setShowArtifacts(true))}
-          onOpenLiveMode={whileClosingDrawer(() => setShowLiveMode(true))}
-          onOpenIntegrations={whileClosingDrawer(() => setShowIntegrations(true))}
-          onOpenHelp={whileClosingDrawer(() => setShowHelp(true))}
-          onOpenShortcutEditor={whileClosingDrawer(() => setShowShortcutEditor(true))}
-          onDeleteThread={handleDeleteThread}
-          onRenameThread={handleRenameThread}
-          onPinThread={handlePinThread}
-          onExportThread={handleExportThread}
-          onOpenArtifact={(artifact, threadId) => {
-            closeMobileSidebar();
-            setActiveThreadId(threadId);
-            setActiveArtifact(artifact);
-          }}
-          drawerOpen={navDrawerOpen}
-          onDrawerOpenChange={setNavDrawerOpen}
-        />
-      </div>
-      
-      <div id="main-content" tabIndex={-1} className="min-h-0 min-w-0 flex relative overflow-hidden outline-none" role="main" aria-label="Main chat area">
-        <Chat
-          messages={activeThread?.messages || []}
-          onSendMessage={handleSendMessage}
-          onOpenArtifact={(artifact) => {
-            if (typeof artifact === 'object' && artifact !== null) {
-              setActiveArtifact(artifact as Artifact);
-            } else if (typeof artifact === 'string') {
-              // Handle string artifact data if needed
-              setActiveArtifact(null);
-            }
-          }}
-          gems={storage.getGems().map(g => ({ id: g.id, name: g.name }))}
-          activeGemId={activeThread?.gemId}
-          onSetGem={handleSetGem}
-          isLoading={isLoading}
-          onRegenerate={handleRegenerate}
-          onEditMessage={handleEditMessage}
-        />
-      </div>
-
-      <Canvas
-        artifact={activeArtifact}
-        onClose={() => setActiveArtifact(null)}
-        settings={settings}
-        drawerOpen={canvasDrawerOpen}
-        onDrawerOpenChange={setCanvasDrawerOpen}
+  const renderChat = () => (
+    <div
+      id="main-content"
+      tabIndex={-1}
+      className="main-shell-content min-h-0 min-w-0 flex relative overflow-hidden outline-none"
+      role="main"
+      aria-label="Main chat area"
+    >
+      <Chat
+        messages={activeThread?.messages || []}
+        onSendMessage={handleSendMessage}
+        onOpenArtifact={(artifact) => {
+          if (typeof artifact === 'object' && artifact !== null) {
+            openArtifactInShell(artifact as Artifact);
+          } else if (typeof artifact === 'string') {
+            // Handle string artifact data if needed
+            closeCanvasPanel();
+          }
+        }}
+        gems={storage.getGems().map(g => ({ id: g.id, name: g.name }))}
+        activeGemId={activeThread?.gemId}
+        onSetGem={handleSetGem}
+        isLoading={isLoading}
+        onRegenerate={handleRegenerate}
+        onEditMessage={handleEditMessage}
       />
+    </div>
+  );
 
+  const renderCanvas = (
+    drawerOpen: boolean,
+    onDrawerOpenChange: (open: boolean) => void,
+  ) => (
+    <Canvas
+      artifact={activeArtifact}
+      onClose={closeCanvasPanel}
+      settings={settings}
+      drawerOpen={drawerOpen}
+      onDrawerOpenChange={onDrawerOpenChange}
+    />
+  );
+
+  const renderSharedOverlays = () => (
+    <>
       {showPI && <PersonalIntelligencePopup onClose={() => setShowPI(false)} />}
       {showSettings && <Settings onClose={() => { setShowSettings(false); if (window.location.hash === '#settings') history.replaceState(null, '', window.location.pathname + window.location.search); }} settings={settings} onUpdateSettings={handleUpdateSettings} />}
       {showGems && <GemsRegistry onClose={() => setShowGems(false)} />}
       {showSchedule && <ScheduledActions onClose={() => setShowSchedule(false)} onRunPrompt={handleSendMessage} />}
-      {showArtifacts && <ArtifactLibrary onClose={() => setShowArtifacts(false)} onOpenArtifact={(artifact) => { setActiveArtifact(artifact); setShowArtifacts(false); }} />}
-      {showSearch && <Search onClose={() => setShowSearch(false)} onOpenThread={(id) => setActiveThreadId(id)} onOpenArtifact={(a) => setActiveArtifact(a)} />}
+      {showArtifacts && <ArtifactLibrary onClose={() => setShowArtifacts(false)} onOpenArtifact={(artifact) => { openArtifactInShell(artifact); setShowArtifacts(false); }} />}
+      {showSearch && <Search onClose={() => setShowSearch(false)} onOpenThread={(id) => setActiveThreadId(id)} onOpenArtifact={(a) => openArtifactInShell(a)} />}
       {showCommandPalette && <CommandPalette onClose={() => setShowCommandPalette(false)} actions={paletteActions} />}
       {showHelp && <Help onClose={() => setShowHelp(false)} />}
       {showShortcutEditor && <ShortcutEditor onClose={() => setShowShortcutEditor(false)} shortcuts={shortcuts} overrides={settings.shortcutOverrides ?? {}} onUpdateOverrides={(o) => handleUpdateSettings({ ...settings, shortcutOverrides: o })} />}
@@ -781,13 +856,13 @@ export default function App() {
               </code>
             </p>
             <div className="flex gap-3 w-full">
-              <button 
+              <button
                 onClick={() => handleMcpResponse(false)}
                 className="flex-1 py-2 px-4 bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors"
               >
                 Deny
               </button>
-              <button 
+              <button
                 onClick={() => handleMcpResponse(true)}
                 className="flex-1 py-2 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >
@@ -797,6 +872,110 @@ export default function App() {
           </div>
         </div>
       )}
+    </>
+  );
+
+  const renderCompactShell = () => (
+    <>
+      {renderSkipLink()}
+      <OfflineIndicator />
+      <button
+        ref={compactMenuButtonRef}
+        id="compact-menu-button"
+        type="button"
+        className="mobile-hamburger"
+        aria-label={mobileSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+        aria-controls="compact-sidebar"
+        aria-expanded={mobileSidebarOpen}
+        onClick={mobileSidebarOpen ? closeMobileSidebar : openMobileSidebar}
+      >
+        <Menu size={20} />
+      </button>
+
+      {mobileSidebarOpen && (
+        <div
+          aria-hidden="true"
+          className="shell-overlay-backdrop mobile-backdrop"
+          onClick={closeMobileSidebar}
+        />
+      )}
+
+      <div
+        id="compact-sidebar"
+        className={`mobile-sidebar-wrap compact-sidebar-sheet ${mobileSidebarOpen ? 'open' : ''}`}
+        aria-hidden={!mobileSidebarOpen}
+      >
+        {renderSidebar(true, setNavDrawerOpen)}
+      </div>
+
+      {renderChat()}
+
+      {activeArtifact && (
+        <>
+          <div
+            aria-hidden="true"
+            className="shell-overlay-backdrop compact-canvas-backdrop"
+            onClick={closeCanvasPanel}
+          />
+          <div className="compact-canvas-sheet" role="dialog" aria-modal="true" aria-label="Artifact canvas">
+            {renderCanvas(true, setCanvasDrawerOpen)}
+          </div>
+        </>
+      )}
+    </>
+  );
+
+  const renderMediumShell = () => (
+    <>
+      {renderSkipLink()}
+      <OfflineIndicator />
+      <div className="tablet-sidebar-pane">
+        {renderSidebar(true, () => undefined)}
+      </div>
+      {renderChat()}
+      {activeArtifact && (
+        <>
+          <div
+            aria-hidden="true"
+            className="shell-overlay-backdrop tablet-canvas-backdrop"
+            onClick={closeCanvasPanel}
+          />
+          <div className="tablet-canvas-sheet" role="dialog" aria-modal="true" aria-label="Artifact canvas">
+            {renderCanvas(true, () => undefined)}
+          </div>
+        </>
+      )}
+    </>
+  );
+
+  const renderExpandedShell = () => (
+    <>
+      {renderSkipLink()}
+      <OfflineIndicator />
+      {renderSidebar(navDrawerOpen, setNavDrawerOpen)}
+      {renderChat()}
+      {renderCanvas(canvasDrawerOpen, setCanvasDrawerOpen)}
+    </>
+  );
+
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
+
+  return (
+    <div
+      data-shell-mode={shellMode}
+      className={`app-shell shell-${shellMode} bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 font-sans ${
+        shellMode === 'expanded' ? 'grid transition-[grid-template-columns] duration-300 ease-in-out' : ''
+      }`}
+      style={shellMode === 'expanded' ? {
+        gridTemplateColumns: `${navDrawerOpen ? navRailOpenWidth : `${navRailClosedWidth}px`} minmax(0, 1fr) ${canvasDrawerOpen ? canvasRailOpenWidth : `${canvasRailClosedWidth}px`}`,
+      } : undefined}
+    >
+      {shellMode === 'compact' && renderCompactShell()}
+      {shellMode === 'medium' && renderMediumShell()}
+      {shellMode === 'expanded' && renderExpandedShell()}
+      {renderSharedOverlays()}
     </div>
   );
 }
