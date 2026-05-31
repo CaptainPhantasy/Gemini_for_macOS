@@ -469,9 +469,7 @@ function tokenResponseToSet(
   response: GoogleTokenResponse,
   previousRefreshToken?: string,
 ): TokenSet {
-  // Validate that we got a real access token from Google
   if (!response.access_token) {
-    console.error('[OAuth] Google token response missing access_token:', response);
     throw new Error('Google OAuth failed: no access token in response');
   }
   const refreshToken = response.refresh_token ?? previousRefreshToken ?? '';
