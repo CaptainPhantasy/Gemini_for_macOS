@@ -21,6 +21,204 @@ const DEFAULT_MAX_RETRIES = 3;
 /** Initial backoff delay in milliseconds. */
 const INITIAL_BACKOFF_MS = 1_000;
 
+interface ResponseParts {
+  parts: Array<Record<string, unknown>>;
+  text: string;
+  functionCalls: Array<{ name: string; args: Record<string, unknown>; id?: string }>;
+}
+
+type StreamChunkCallback = (chunk: {
+  chunkText: string;
+  aggregatedText: string;
+  parts: Array<Record<string, unknown>>;
+  functionCalls: Array<{ name: string; args: Record<string, unknown>; id?: string }>;
+}) => void | Promise<void>;
+
+function extractResponseFragments(response: any): ResponseParts {
+  const textParts: string[] = [];
+  const parts: Array<Record<string, unknown>> = [];
+  const functionCalls: Array<{ name: string; args: Record<string, unknown>; id?: string }> = [];
+
+  const candidateParts = (response as any)?.candidates?.[0]?.content?.parts;
+  if (Array.isArray(candidateParts)) {
+    for (const part of candidateParts) {
+      if (part && typeof part === 'object') {
+        parts.push(part as Record<string, unknown>);
+        if (typeof (part as any).text === 'string') {
+          textParts.push((part as any).text);
+        }
+        const functionCall = (part as any).functionCall;
+        if (functionCall) {
+          functionCalls.push({
+            name: functionCall.name || functionCall.functionName,
+            args: functionCall.args || {},
+            id: functionCall.id,
+          });
+        }
+      }
+    }
+  }
+
+  if (textParts.length > 0) {
+    return { parts, text: textParts.join('\n'), functionCalls };
+  }
+
+  const rawText = (response as any)?.text;
+  const text = typeof rawText === 'function' ? rawText() : rawText || '';
+  return {
+    parts: Array.isArray(parts) ? parts : [],
+    text: typeof text === 'string' ? text : String(text ?? ''),
+    functionCalls,
+  };
+}
+
+function mergeStreamedResponse(chunks: any[]): { response: any; responseText: string; responseParts: Array<Record<string, unknown>> } {
+  if (chunks.length === 0) {
+    return { response: { text: '' }, responseText: '', responseParts: [] };
+  }
+
+  const allParts: Array<Record<string, unknown>> = [];
+  let responseText = '';
+  let usageMetadata: unknown = undefined;
+  let lastChunk: any = chunks[chunks.length - 1];
+
+  for (const chunk of chunks) {
+    const parsed = extractResponseFragments(chunk);
+    if (parsed.parts.length > 0) {
+      allParts.push(...parsed.parts);
+    }
+    if (parsed.text) {
+      responseText += parsed.text;
+    }
+    if ((chunk as any)?.usageMetadata) {
+      usageMetadata = (chunk as any).usageMetadata;
+    }
+  }
+
+  const candidates = Array.isArray(lastChunk?.candidates) ? [...lastChunk.candidates] : [];
+  if (candidates.length > 0) {
+    const lastCandidate = candidates[0];
+    candidates[0] = {
+      ...lastCandidate,
+      content: {
+        ...(lastCandidate?.content ?? {}),
+        parts: allParts.length > 0 ? allParts : ((lastCandidate?.content?.parts ?? []) as Array<Record<string, unknown>>),
+      },
+    };
+  } else if (allParts.length > 0) {
+    candidates[0] = { role: 'model', parts: allParts };
+  }
+
+  return {
+    response: {
+      ...(lastChunk ?? {}),
+      ...(candidates.length > 0 ? { candidates } : {}),
+      ...(usageMetadata !== undefined ? { usageMetadata } : {}),
+      ...(responseText ? { text: responseText } : {}),
+    },
+    responseText,
+    responseParts: allParts,
+  };
+}
+
+export interface GenerationStreamOptions extends GenerationOptions {
+  onChunk?: StreamChunkCallback;
+}
+
+interface GenerationStreamState {
+  responseText: string;
+  responseParts: Array<Record<string, unknown>>;
+}
+
+/**
+ * Execute a streaming generation request with the same retry + fallback contract
+ * used by {@link generateWithFailover}.
+ */
+export async function generateWithFailoverStream(
+  options: GenerationStreamOptions,
+): Promise<GenerationResult & GenerationStreamState> {
+  const { ai, maxRetries = DEFAULT_MAX_RETRIES, fallbackModel, onChunk } = options;
+  const primaryModel = options.model;
+
+  const runStream = async (model: string): Promise<GenerationResult & GenerationStreamState> => {
+    const chunks: any[] = [];
+    let responseText = '';
+    let responseParts: Array<Record<string, unknown>> = [];
+    const stream = await ai.models.generateContentStream({
+      model,
+      contents: options.contents as any,
+      config: options.config as any,
+    });
+
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+      const parsed = extractResponseFragments(chunk);
+      responseText += parsed.text;
+      if (parsed.parts.length > 0) {
+        responseParts.push(...parsed.parts);
+      }
+      if (parsed.text.length > 0 || parsed.functionCalls.length > 0) {
+        await onChunk?.({
+          chunkText: parsed.text,
+          aggregatedText: responseText,
+          parts: responseParts,
+          functionCalls: parsed.functionCalls,
+        });
+      }
+    }
+
+    const merged = mergeStreamedResponse(chunks);
+    responseText = merged.responseText;
+    responseParts = merged.responseParts;
+    return {
+      response: merged.response,
+      responseText,
+      responseParts,
+      modelUsed: model,
+      retries: 0,
+      fellBack: model !== primaryModel,
+    };
+  };
+
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const result = await runStream(primaryModel);
+      return {
+        ...result,
+        retries: attempt,
+        fellBack: false,
+      };
+    } catch (err) {
+      lastError = err as Error;
+      if (!isTransientError(err)) {
+        logger.error(`[failover] Non-transient error from ${primaryModel}: ${lastError.message}`);
+        break;
+      }
+      const backoff = Math.min(INITIAL_BACKOFF_MS * Math.pow(2, attempt), MAX_BACKOFF_MS);
+      logger.warn(`[failover] Attempt ${attempt + 1}/${maxRetries} failed for ${primaryModel}, retrying in ${backoff}ms: ${lastError.message}`);
+      await new Promise(resolve => setTimeout(resolve, backoff));
+    }
+  }
+
+  if (fallbackModel) {
+    logger.warn(`[failover] Primary model ${primaryModel} exhausted retries, falling back to ${fallbackModel}`);
+    try {
+      const result = await runStream(fallbackModel);
+      return {
+        ...result,
+        modelUsed: fallbackModel,
+        retries: maxRetries,
+        fellBack: true,
+      };
+    } catch (fallbackErr) {
+      logger.error(`[failover] Fallback model ${fallbackModel} also failed: ${(fallbackErr as Error).message}`);
+      throw fallbackErr;
+    }
+  }
+
+  throw lastError;
+}
 export interface GenerationOptions {
   /** The GoogleGenAI instance (from getAI()). */
   ai: GoogleGenAI;

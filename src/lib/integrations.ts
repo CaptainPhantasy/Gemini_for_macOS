@@ -15,7 +15,7 @@ export interface ImportResult {
   content?: string; // text content OR data URI for binary
   mimeType?: string;
   sourceFileId?: string;
-  sourceType?: 'drive' | 'docs' | 'calendar';
+  sourceType?: 'drive' | 'docs' | 'calendar' | 'gmail';
   fetchedAt?: number;
   error?: string;
 }
@@ -41,6 +41,15 @@ export interface CalendarEventSummary {
   htmlLink?: string;
 }
 
+export interface GmailMessageSummary {
+  id: string;
+  threadId?: string;
+  from?: string;
+  subject: string;
+  snippet: string;
+  date?: string;
+}
+
 const GOOGLE_API_TIMEOUT_MS = 15_000;
 const GOOGLE_API_MAX_RETRIES = 2;
 const GOOGLE_API_RETRY_DELAY_MS = 250;
@@ -50,6 +59,7 @@ const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 const DOCS_API = 'https://docs.googleapis.com/v1';
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
+const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
 interface GoogleApiFetchOptions extends Omit<RequestInit, 'signal'> {
   timeoutMs?: number;
@@ -259,6 +269,26 @@ interface CalendarListResponse {
   }>;
 }
 
+interface GmailListResponse {
+  messages?: Array<{ id?: string; threadId?: string }>;
+}
+
+export interface GmailMessagePayload {
+  mimeType?: string;
+  filename?: string;
+  headers?: Array<{ name?: string; value?: string }>;
+  body?: { data?: string };
+  parts?: GmailMessagePayload[];
+}
+
+export interface GmailMessageResponse {
+  id?: string;
+  threadId?: string;
+  snippet?: string;
+  payload?: GmailMessagePayload;
+  internalDate?: string;
+}
+
 function extractBodyText(body: DocsBody | undefined): string {
   const blocks = body?.content ?? [];
   const lines: string[] = [];
@@ -296,6 +326,55 @@ function stripHtml(value: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .trim();
+}
+
+function gmailHeader(message: GmailMessageResponse, headerName: string): string | undefined {
+  const lower = headerName.toLowerCase();
+  return message.payload?.headers?.find((header) => header.name?.toLowerCase() === lower)?.value;
+}
+
+function decodeBase64UrlText(data: string): string {
+  const normalized = data.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function collectGmailTextParts(payload: GmailMessagePayload | undefined, out: string[]): void {
+  if (!payload) return;
+  if (payload.mimeType === 'text/plain' && payload.body?.data) {
+    out.push(decodeBase64UrlText(payload.body.data));
+  }
+  for (const part of payload.parts ?? []) {
+    collectGmailTextParts(part, out);
+  }
+}
+
+export function gmailMessageToMarkdown(message: GmailMessageResponse): string {
+  const subject = gmailHeader(message, 'Subject') ?? '(no subject)';
+  const from = gmailHeader(message, 'From') ?? '(unknown sender)';
+  const date = gmailHeader(message, 'Date') ?? (message.internalDate ? new Date(Number(message.internalDate)).toISOString() : '');
+  const textParts: string[] = [];
+  collectGmailTextParts(message.payload, textParts);
+  const body = textParts.join('\n\n').trim() || message.snippet || '';
+  const lines = [`# ${subject}`, '', `- From: ${from}`];
+  if (date) lines.push(`- Date: ${date}`);
+  if (message.threadId) lines.push(`- Thread ID: ${message.threadId}`);
+  lines.push('', body);
+  return `${lines.join('\n').replace(/\n{4,}/g, '\n\n\n')}\n`;
+}
+
+function gmailMessageSummary(message: GmailMessageResponse): GmailMessageSummary | null {
+  if (!message.id) return null;
+  return {
+    id: message.id,
+    ...(message.threadId ? { threadId: message.threadId } : {}),
+    from: gmailHeader(message, 'From'),
+    subject: gmailHeader(message, 'Subject') ?? '(no subject)',
+    snippet: message.snippet ?? '',
+    date: gmailHeader(message, 'Date') ?? (message.internalDate ? new Date(Number(message.internalDate)).toISOString() : undefined),
+  };
 }
 
 export function calendarEventsToMarkdown(events: CalendarEventSummary[], maxEvents = 10): string {
@@ -500,6 +579,70 @@ export const integrations = {
           mimeType: 'text/plain',
           sourceFileId: documentId,
           sourceType: 'docs',
+          fetchedAt: Date.now(),
+        };
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) };
+      }
+    },
+
+    async listGmailMessages(accessToken: string, maxResults = 10): Promise<GmailMessageSummary[]> {
+      try {
+        const params = new URLSearchParams();
+        params.set('maxResults', String(Math.max(1, Math.min(maxResults, 50))));
+        params.set('q', 'newer_than:30d');
+
+        const response = await fetchWithRetry(`${GMAIL_API}/messages?${params.toString()}`, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+
+        if (!response.ok) {
+          const body = await response.text();
+          console.error('[integrations] Gmail list failed:', response.status, body);
+          return [];
+        }
+
+        const data = (await response.json()) as GmailListResponse;
+        const ids = (data.messages ?? []).flatMap((message) => (message.id ? [message.id] : []));
+        const summaries = await Promise.all(ids.slice(0, Math.max(1, Math.min(maxResults, 50))).map(async (id) => {
+          const msgResponse = await fetchWithRetry(`${GMAIL_API}/messages/${encodeURIComponent(id)}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`, {
+            method: 'GET',
+            headers: authHeaders(accessToken),
+          });
+          if (!msgResponse.ok) return null;
+          return gmailMessageSummary((await msgResponse.json()) as GmailMessageResponse);
+        }));
+
+        return summaries.filter((summary): summary is GmailMessageSummary => summary !== null);
+      } catch (error) {
+        console.error('[integrations] Gmail list error:', errorMessage(error));
+        return [];
+      }
+    },
+
+    async importGmailMessage(accessToken: string, messageId: string): Promise<ImportResult> {
+      try {
+        const response = await fetchWithRetry(`${GMAIL_API}/messages/${encodeURIComponent(messageId)}?format=full`, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+
+        if (!response.ok) {
+          const body = await response.text();
+          return { ok: false, error: `Gmail message fetch failed: ${response.status} ${body}` };
+        }
+
+        const message = (await response.json()) as GmailMessageResponse;
+        const subject = gmailHeader(message, 'Subject') ?? 'Gmail Message';
+        return {
+          ok: true,
+          artifactId: generateId(),
+          title: subject,
+          content: gmailMessageToMarkdown(message),
+          mimeType: 'text/markdown',
+          sourceFileId: message.id ?? messageId,
+          sourceType: 'gmail',
           fetchedAt: Date.now(),
         };
       } catch (error) {

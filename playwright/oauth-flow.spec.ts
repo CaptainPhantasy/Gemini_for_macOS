@@ -14,19 +14,30 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Integrations OAuth UI', () => {
   test('Integrations panel renders and warns when gcpClientId is missing', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('http://localhost:13000/gemini/');
+
+    const splashVideo = page.locator('video').first();
+    await expect(splashVideo).toBeAttached({ timeout: 15_000 });
+    await splashVideo.evaluate((node) => {
+      node.dispatchEvent(new Event('ended', { bubbles: true }));
+    });
+
 
     // Wait for workspace ready signal.
     const main = page.getByRole('main', { name: /main chat area/i });
     await expect(main).toBeVisible({ timeout: 15_000 });
 
-    // Open Integrations via the sidebar. Falls back to text search.
-    const integrationsTrigger = page
-      .getByRole('button', { name: /integrations/i })
-      .or(page.getByText(/integrations/i).first());
+    // Open Integrations via its sidebar button. Target the button directly:
+    // text nodes share the same accessible copy and can receive focus without
+    // dispatching the React button handler consistently across Chromium builds.
+    const integrationsTrigger = page.getByRole('button', { name: /^integrations$/i });
 
     const triggerCount = await integrationsTrigger.count();
     test.skip(triggerCount === 0, 'Integrations sidebar entry not exposed in this build');
+
+    await expect(integrationsTrigger.first()).toBeVisible();
+    await expect(integrationsTrigger.first()).toBeEnabled();
+    await page.waitForTimeout(1_000);
 
     await integrationsTrigger.first().click();
 

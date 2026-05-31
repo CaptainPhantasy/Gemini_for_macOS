@@ -9,14 +9,11 @@
  * Architecture Roadmap §3d: Pre-Flight Static Analysis Middleware
  */
 
-/** Allowed workspace root directories for file operations. */
-const ALLOWED_PATH_ROOTS = [
-  '/Volumes/SanDisk1Tb/GEMINI for MacOS',
-  '/Volumes/Storage',
-  '/Volumes/DevLab',
-  '/tmp',
-  process.env.HOME ?? '/Users',
-];
+/**
+ * Desktop Commander treats an empty allowedDirectories list as full filesystem
+ * access. GEMINI must not add a second, hidden allow-list here; the optional
+ * directory lock below is the single source of truth for path scoping.
+ */
 
 /** Shell metacharacter patterns that indicate command injection attempts. */
 const COMMAND_INJECTION_PATTERNS = [
@@ -31,21 +28,17 @@ const COMMAND_INJECTION_PATTERNS = [
 ];
 
 /**
- * Validate that a file path stays within allowed workspace boundaries.
- * Returns an error message if the path escapes allowed roots, or null if safe.
+ * Validate path syntax before requests reach the MCP proxy.
+ *
+ * This intentionally does NOT enforce filesystem roots. Desktop Commander's
+ * own `allowedDirectories` setting controls broad filesystem access, and its
+ * UI documents that an empty list means full access. GEMINI's optional
+ * directory lock is enforced separately in executeTool().
  */
 export function validatePath(path: string): string | null {
   if (!path || typeof path !== 'string') return null;
 
   const resolved = path.startsWith('~') ? path.replace('~', process.env.HOME ?? '/Users') : path;
-
-  // Block absolute paths outside allowed roots
-  if (resolved.startsWith('/')) {
-    const isAllowed = ALLOWED_PATH_ROOTS.some(root => resolved.startsWith(root));
-    if (!isAllowed) {
-      return `Path escapes workspace boundaries: "${resolved}" is not under any allowed root directory.`;
-    }
-  }
 
   // Block path traversal sequences
   if (resolved.includes('..')) {
@@ -374,6 +367,9 @@ export class MCPClient {
    * are available (or that we've tried and failed).
    */
   async awaitTools(): Promise<ToolDefinition[]> {
+    if (!this.isConnected || this.tools.length === 0) {
+      this.toolsReady = this.connect();
+    }
     if (this.toolsReady) await this.toolsReady;
     return this.tools;
   }

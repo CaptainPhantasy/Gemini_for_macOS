@@ -5,6 +5,7 @@ import {
   FileText,
   Calendar,
   BookOpen,
+  Mail,
   Plane,
   Loader2,
   CheckCircle2,
@@ -17,6 +18,7 @@ import {
   integrations,
   type CalendarEventSummary,
   type DriveFileSummary,
+  type GmailMessageSummary,
   type ImportResult,
 } from '../lib/integrations';
 import { oauthHandler, GOOGLE_WORKSPACE_SCOPES, type OAuthConfig } from '../lib/oauth-handler';
@@ -37,7 +39,7 @@ interface IntegrationsProps {
   activeThread?: Thread | null;
 }
 
-type ServiceKey = 'drive' | 'docs' | 'calendar';
+type ServiceKey = 'drive' | 'docs' | 'calendar' | 'gmail';
 
 interface ConnectionState {
   connected: boolean;
@@ -51,24 +53,29 @@ interface BannerState {
 
 const REDIRECT_URI = 'http://localhost:13000/oauth/callback';
 const LS_CONNECTIONS_KEY = 'gemini-for-macos:integrations:connections';
+function defaultConnections(): Record<ServiceKey, ConnectionState> {
+  return {
+    drive: { connected: false },
+    docs: { connected: false },
+    calendar: { connected: false },
+    gmail: { connected: false },
+  };
+}
 
 function loadConnectionsFromStorage(): Record<ServiceKey, ConnectionState> {
+  const defaults = defaultConnections();
   try {
     const raw = localStorage.getItem(LS_CONNECTIONS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (typeof parsed === 'object' && parsed !== null) {
-        return parsed as Record<ServiceKey, ConnectionState>;
+        return { ...defaults, ...(parsed as Partial<Record<ServiceKey, ConnectionState>>) };
       }
     }
   } catch (e) {
     console.warn('Failed to load connection state from localStorage:', e);
   }
-  return {
-    drive: { connected: false },
-    docs: { connected: false },
-    calendar: { connected: false },
-  };
+  return defaults;
 }
 
 function saveConnectionsToStorage(connections: Record<ServiceKey, ConnectionState>): void {
@@ -121,6 +128,7 @@ export function Integrations({
   const [banner, setBanner] = useState<BannerState | null>(null);
   const [driveFiles, setDriveFiles] = useState<DriveFileSummary[] | null>(null);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[] | null>(null);
+  const [gmailMessages, setGmailMessages] = useState<GmailMessageSummary[] | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [notebookLmDriveFileId, setNotebookLmDriveFileId] = useState<string | null>(null);
 
@@ -141,6 +149,7 @@ export function Integrations({
             drive: { connected: true, connectedAt: Date.now() },
             docs: { connected: true, connectedAt: Date.now() },
             calendar: { connected: true, connectedAt: Date.now() },
+            gmail: { connected: true, connectedAt: Date.now() },
           });
         }
       } catch {
@@ -178,6 +187,7 @@ export function Integrations({
       drive: { connected: true, connectedAt: Date.now() },
       docs: { connected: true, connectedAt: Date.now() },
       calendar: { connected: true, connectedAt: Date.now() },
+      gmail: { connected: true, connectedAt: Date.now() },
     });
   };
 
@@ -364,6 +374,44 @@ export function Integrations({
     }
   };
 
+  const handleListGmailMessages = async (): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy('gmail:list');
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const messages = await integrations.googleWorkspace.listGmailMessages(token, 10);
+      setGmailMessages(messages);
+      setConnections((prev) => ({ ...prev, gmail: { connected: true, connectedAt: Date.now() } }));
+      if (messages.length === 0) showBanner({ kind: 'success', message: 'No recent Gmail messages found.' });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Gmail list failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleImportGmailMessage = async (messageId: string, fallbackSubject: string): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy(`gmail:import:${messageId}`);
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const result = await integrations.googleWorkspace.importGmailMessage(token, messageId);
+      if (!result.ok || !result.content) {
+        showBanner({ kind: 'error', message: result.error ?? 'Gmail import failed' });
+        return;
+      }
+      const artifact = await persistAsArtifact(result, fallbackSubject || 'Gmail Message');
+      if (artifact) showBanner({ kind: 'success', message: `Imported Gmail as artifact: ${artifact.title}` });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Gmail import failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
   const uploadNotebookLmPack = async (packTitle: string, packArtifacts: Artifact[], thread?: Thread | null): Promise<void> => {
     const clientId = requireClientId();
     if (!clientId) return;
@@ -506,6 +554,40 @@ export function Integrations({
                 ) : null}
               </section>
 
+
+              <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+                <header className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Mail size={18} className="text-red-600" />
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Gmail</h3>
+                  </div>
+                  <span className="text-xs text-gray-500">{connections.gmail.connected ? 'Connected' : 'Not connected'}</span>
+                </header>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => handleConnect('gmail')} disabled={busy !== null} className="rounded-lg bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-50">
+                    {busy === 'connect:gmail' ? <Loader2 className="animate-spin" size={14} /> : 'Connect'}
+                  </button>
+                  <button onClick={handleListGmailMessages} disabled={busy !== null} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+                    {busy === 'gmail:list' ? 'Loading...' : 'List recent mail'}
+                  </button>
+                </div>
+                {gmailMessages && gmailMessages.length > 0 ? (
+                  <ul className="mt-3 max-h-56 overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+                    {gmailMessages.map((message) => (
+                      <li key={message.id} className="flex items-start justify-between gap-3 px-3 py-2 text-sm">
+                        <div className="min-w-0">
+                          <div className="truncate text-gray-900 dark:text-gray-100">{message.subject}</div>
+                          <div className="truncate text-xs text-gray-500">{message.from ?? '(unknown sender)'}</div>
+                          <div className="line-clamp-2 text-xs text-gray-500">{message.snippet}</div>
+                        </div>
+                        <button onClick={() => handleImportGmailMessage(message.id, message.subject)} disabled={busy !== null} className="shrink-0 rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
+                          Import
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
               {notebookLmEnabled !== false && (
                 <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
                   <header className="flex items-center justify-between mb-3">

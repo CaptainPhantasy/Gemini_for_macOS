@@ -1,8 +1,13 @@
-const OFFICIAL_GEMINI_BASE_PATH = '/vendor/official-gemini';
+const OFFICIAL_GEMINI_BASE_PATH = 'vendor/official-gemini';
+
+function appBasePath(): string {
+  const base = import.meta.env.BASE_URL === '/' ? '/gemini/' : import.meta.env.BASE_URL || '/gemini/';
+  return base.endsWith('/') ? base : `${base}/`;
+}
 
 export function officialGeminiAssetPath(relativePath: string): string {
   const normalized = relativePath.replace(/^\/+/, '');
-  return `${OFFICIAL_GEMINI_BASE_PATH}/${normalized}`;
+  return `${appBasePath()}${OFFICIAL_GEMINI_BASE_PATH}/${normalized}`;
 }
 
 export const OFFICIAL_GEMINI_ASSETS = {

@@ -19,18 +19,26 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Live mode entry', () => {
   test('Live Mode sidebar entry opens the chooser modal', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('http://localhost:13000/gemini/');
+
+    const splashVideo = page.locator('video').first();
+    await expect(splashVideo).toBeAttached({ timeout: 15_000 });
+    await splashVideo.evaluate((node) => {
+      node.dispatchEvent(new Event('ended', { bubbles: true }));
+    });
+
 
     // Splash screen renders briefly on cold load — wait it out by waiting for
     // the workspace surface (Sidebar role landmark + main chat region).
     const main = page.getByRole('main', { name: /main chat area/i });
     await expect(main).toBeVisible({ timeout: 15_000 });
 
-    // Open Live Mode via the sidebar. The Sidebar exposes labelled buttons;
-    // fall back to a text match if the accessible name shifts.
+    // Open Live via the desktop vertical header. Older shells exposed this as
+    // "Live Mode"; keep the matcher tolerant so the smoke test tracks the
+    // user-facing entry point rather than a specific label variant.
     const liveModeTrigger = page
-      .getByRole('button', { name: /live mode/i })
-      .or(page.getByText(/live mode/i).first());
+      .getByRole('button', { name: /^live(?: mode)?$/i })
+      .or(page.getByText(/^live(?: mode)?$/i).first());
     await liveModeTrigger.first().click();
 
     // The LiveChooser exposes three modes — Voice, Camera, Screen.

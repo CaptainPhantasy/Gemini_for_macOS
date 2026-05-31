@@ -2,17 +2,18 @@ import { useState, useEffect } from 'react';
 import { ScheduledAction } from '../types';
 import { storage } from '../lib/storage';
 import { scheduler, type InstallPlan, type UninstallPlan } from '../lib/scheduler-installer';
+import { cronToLaunchd } from '../lib/cron-to-launchd';
 import { v4 as uuidv4 } from 'uuid';
 import { X, Save, Play, Trash2, Copy, Info } from 'lucide-react';
+
+// TODO: Make this a user setting for portability. Hardcoded for now since this
+// is a personal tool tied to Douglas's machine layout.
+const SCRIPT_PATH = '/Volumes/SanDisk1Tb/GEMINI for MacOS/scripts/run-scheduled-action.js';
 
 interface ScheduledActionsProps {
   onClose: () => void;
   onRunPrompt: (prompt: string) => Promise<void> | void;
 }
-
-// TODO: Make this a user setting for portability. Hardcoded for now since this
-// is a personal tool tied to Douglas's machine layout.
-const SCRIPT_PATH = '/Volumes/SanDisk1Tb/GEMINI for MacOS/scripts/run-scheduled-action.js';
 
 type PlanEntry =
   | { kind: 'install'; plan: InstallPlan }
@@ -23,6 +24,7 @@ export function ScheduledActions({ onClose, onRunPrompt }: ScheduledActionsProps
   const [cron, setCron] = useState('');
   const [prompt, setPrompt] = useState('');
   const [plans, setPlans] = useState<Record<string, PlanEntry>>({});
+  const [cronError, setCronError] = useState<string | null>(null);
   const [runNowMessage, setRunNowMessage] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -31,17 +33,30 @@ export function ScheduledActions({ onClose, onRunPrompt }: ScheduledActionsProps
   }, []);
 
   const handleSave = async () => {
-    if (!cron.trim() || !prompt.trim()) return;
+    const trimmedCron = cron.trim();
+    const trimmedPrompt = prompt.trim();
+
+    if (!trimmedCron || !trimmedPrompt) {
+      setCronError('Cron and prompt are required to schedule an action.');
+      return;
+    }
+
+    const parsedCron = cronToLaunchd(trimmedCron);
+    if (!parsedCron.ok) {
+      setCronError(parsedCron.error);
+      return;
+    }
 
     const newAction: ScheduledAction = {
       id: uuidv4(),
-      cron,
-      prompt,
+      cron: trimmedCron,
+      prompt: trimmedPrompt,
       enabled: true
     };
 
     await storage.saveScheduledAction(newAction);
     setActions([...storage.getScheduledActions()]);
+    setCronError(null);
 
     const plan = scheduler.buildInstallPlan(newAction, SCRIPT_PATH);
     setPlans(prev => ({ ...prev, [newAction.id]: { kind: 'install', plan } }));
@@ -54,7 +69,6 @@ export function ScheduledActions({ onClose, onRunPrompt }: ScheduledActionsProps
     const plan = scheduler.buildInstallPlan(action, SCRIPT_PATH);
     setPlans(prev => ({ ...prev, [action.id]: { kind: 'install', plan } }));
   };
-
   const handleDelete = (action: ScheduledAction) => {
     const plan = scheduler.buildUninstallPlan(action.id);
     setPlans(prev => ({ ...prev, [action.id]: { kind: 'uninstall', plan } }));
@@ -190,6 +204,11 @@ export function ScheduledActions({ onClose, onRunPrompt }: ScheduledActionsProps
             onChange={e => setCron(e.target.value)}
             className="w-full p-2 bg-gray-50 dark:bg-[#131314] border border-gray-200 dark:border-gray-800 rounded-lg text-gray-900 dark:text-white font-mono"
           />
+          {cronError && (
+            <p role="alert" className="text-sm text-red-600 dark:text-red-300">
+              Invalid cron expression: {cronError}
+            </p>
+          )}
           <textarea
             aria-label="Prompt to execute"
             placeholder="Prompt to execute"

@@ -11,13 +11,24 @@ import { Thread, Message, Artifact, AppSettings, BudgetConfig, DEFAULT_BUDGET_CO
 import { storage } from './lib/storage';
 import { mcpClient } from './lib/mcp';
 import { buildDirectoryLockPrompt } from './lib/directory-lock';
-import { buildAgentSystemPrompt, buildGeminiTools, extractResponseParts, buildFunctionResponse, parseToolRequest } from './lib/agent-tools';
+import {
+  buildAgentSystemPrompt,
+  buildGeminiTools,
+  extractResponseParts,
+  buildFunctionResponse,
+  parseToolRequestDetailed,
+  hasLocalEvidenceTools,
+  requiresLocalToolEvidence,
+  formatLocalToolUnavailableMessage,
+} from './lib/agent-tools';
 import { shouldAutoApproveToolCall, type ToolAction } from './lib/autonomy';
 import { autoSyncArtifact } from './lib/drive-sync';
 import { v4 as uuidv4 } from 'uuid';
 import { getAI } from './lib/api-config';
 import { SplashScreen } from './components/SplashScreen';
-import { ShieldAlert, Plus, Search as SearchIcon, Settings as SettingsIcon, Camera, Sun, Moon, Menu } from 'lucide-react';
+import { OFFICIAL_GEMINI_ASSETS } from './lib/official-assets';
+import { OfficialGeminiLottie } from './components/OfficialGeminiLottie';
+import { ShieldAlert, Plus, Search as SearchIcon, Settings as SettingsIcon, Camera, Sun, Moon, Menu, Smartphone, Tablet, Monitor, Layers, Zap, PanelRight } from 'lucide-react';
 import { detectArtifacts } from './lib/utils';
 import { Search } from "./components/Search";
 import { CommandPalette } from "./components/CommandPalette";
@@ -30,13 +41,13 @@ import { setupAutosave } from "./lib/autosave";
 import { windowState } from "./lib/windowState";
 import { costLedger, PRICING } from "./lib/cost-ledger";
 import { logger } from "./lib/logger";
-import { generateWithFailover } from './lib/generation-wrapper';
+import { generateWithFailoverStream } from './lib/generation-wrapper';
 import { withGeminiContextCache } from './lib/context-cache';
 import { selectModel } from './lib/model-orchestrator';
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { exportThreadAsMarkdown } from "./lib/thread-export";
-import { getShellMode, normalizeShellDrawersForMode, type ShellMode } from './lib/shell-mode';
+import { getShellModeForPath, getShellVerticalForPath, normalizeShellDrawersForMode, type ShellMode, type ShellVertical } from './lib/shell-mode';
 const MODEL_CONTEXT_MESSAGE_LIMIT = 40;
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -58,11 +69,15 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(storage.getSettings());
 
-  // Shell mode is viewport-derived, not user-agent-derived. The wrappers below
-  // choose compact/mobile, medium/tablet, or expanded/desktop composition.
-  const [shellMode, setShellMode] = useState<ShellMode>(() => (
-    typeof window === 'undefined' ? 'expanded' : getShellMode(window.innerWidth)
+  // Shell vertical is viewport-derived by default, with explicit route overrides for
+  // /gemini/mobile, /gemini/tablet, and /gemini/desktop. The mode follows the
+  // vertical so each target gets a separate composition instead of a scaled shell.
+  const [shellVertical, setShellVertical] = useState<ShellVertical>(() => (
+    typeof window === 'undefined' ? 'desktop' : getShellVerticalForPath(window.location.pathname, window.innerWidth)
   ));
+  const shellMode = typeof window === 'undefined'
+    ? 'expanded'
+    : getShellModeForPath(`/gemini/${shellVertical}`, window.innerWidth);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [navDrawerOpen, setNavDrawerOpen] = useState(false);
   const [canvasDrawerOpen, setCanvasDrawerOpen] = useState(false);
@@ -80,6 +95,69 @@ export default function App() {
     lastOverlayTriggerRef.current = activeElement instanceof HTMLElement ? activeElement : null;
   };
 
+  const closeAllOverlays = () => {
+    setShowPI(false);
+    setShowSettings(false);
+    setShowGems(false);
+    setShowSchedule(false);
+    setShowArtifacts(false);
+    setShowSearch(false);
+    setShowCommandPalette(false);
+    setShowHelp(false);
+    setShowShortcutEditor(false);
+    setShowLiveMode(false);
+    setShowIntegrations(false);
+  };
+  const openPanel = (panel:
+    | 'pi'
+    | 'settings'
+    | 'gems'
+    | 'schedule'
+    | 'artifacts'
+    | 'search'
+    | 'commandPalette'
+    | 'help'
+    | 'shortcutEditor'
+    | 'liveMode'
+    | 'integrations'
+  ) => {
+    closeAllOverlays();
+    switch (panel) {
+      case 'pi':
+        setShowPI(true);
+        break;
+      case 'settings':
+        setShowSettings(true);
+        break;
+      case 'gems':
+        setShowGems(true);
+        break;
+      case 'schedule':
+        setShowSchedule(true);
+        break;
+      case 'artifacts':
+        setShowArtifacts(true);
+        break;
+      case 'search':
+        setShowSearch(true);
+        break;
+      case 'commandPalette':
+        setShowCommandPalette(true);
+        break;
+      case 'help':
+        setShowHelp(true);
+        break;
+      case 'shortcutEditor':
+        setShowShortcutEditor(true);
+        break;
+      case 'liveMode':
+        setShowLiveMode(true);
+        break;
+      case 'integrations':
+        setShowIntegrations(true);
+        break;
+    }
+  };
   const closeMobileSidebar = () => {
     setMobileSidebarOpen(false);
     if (shellMode === 'compact') {
@@ -104,9 +182,20 @@ export default function App() {
     }
   };
   // Wrap any sidebar callback so picking an item also closes the compact drawer.
-  const whileClosingDrawer = (fn: () => void) => () => {
+  const whileClosingDrawer = (panel:
+    | 'pi'
+    | 'settings'
+    | 'gems'
+    | 'schedule'
+    | 'artifacts'
+    | 'search'
+    | 'help'
+    | 'shortcutEditor'
+    | 'liveMode'
+    | 'integrations'
+  ) => () => {
     closeMobileSidebar();
-    fn();
+    openPanel(panel);
   };
 
   const theme = settings.theme === 'system' 
@@ -126,9 +215,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const openSettings = () => setShowSettings(true);
+    const openSettings = () => {
+      openPanel('settings');
+      if (window.location.hash === '#settings') {
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+    };
     const openSettingsFromHash = () => {
-      if (window.location.hash === '#settings') setShowSettings(true);
+      if (window.location.hash === '#settings') {
+        openPanel('settings');
+      }
     };
     window.addEventListener('gemini-open-settings', openSettings);
     window.addEventListener('hashchange', openSettingsFromHash);
@@ -137,7 +233,7 @@ export default function App() {
       window.removeEventListener('gemini-open-settings', openSettings);
       window.removeEventListener('hashchange', openSettingsFromHash);
     };
-  }, []);
+  }, [openPanel]);
 
   useEffect(() => {
     // Register MCP permission handler. The modes control prompting only;
@@ -155,17 +251,19 @@ export default function App() {
   }, [settings.autonomyMode, settings.mcpServers, settings.directoryLock]);
 
   useEffect(() => {
-    const syncShellMode = () => {
+    const syncShellVertical = () => {
       if (resizeFrameRef.current != null) return;
       resizeFrameRef.current = requestAnimationFrame(() => {
         resizeFrameRef.current = null;
-        setShellMode(getShellMode(window.innerWidth));
+        setShellVertical(getShellVerticalForPath(window.location.pathname, window.innerWidth));
       });
     };
 
-    window.addEventListener('resize', syncShellMode);
+    window.addEventListener('resize', syncShellVertical);
+    window.addEventListener('popstate', syncShellVertical);
     return () => {
-      window.removeEventListener('resize', syncShellMode);
+      window.removeEventListener('resize', syncShellVertical);
+      window.removeEventListener('popstate', syncShellVertical);
       if (resizeFrameRef.current != null) {
         cancelAnimationFrame(resizeFrameRef.current);
         resizeFrameRef.current = null;
@@ -326,21 +424,21 @@ export default function App() {
   };
   const paletteActions = [
     { label: "New Chat", icon: <Plus size={16} />, shortcut: "Cmd+N", action: handleNewThread },
-    { label: "Search", icon: <SearchIcon size={16} />, shortcut: "Cmd+K", action: () => setShowSearch(true) },
-    { label: "Settings", icon: <SettingsIcon size={16} />, shortcut: "Cmd+,", action: () => setShowSettings(true) },
-    { label: "Live Mode", icon: <Camera size={16} />, shortcut: "Cmd+L", action: () => setShowLiveMode(true) },
+    { label: "Search", icon: <SearchIcon size={16} />, shortcut: "Cmd+K", action: () => openPanel('search') },
+    { label: "Settings", icon: <SettingsIcon size={16} />, shortcut: "Cmd+,", action: () => openPanel('settings') },
+    { label: "Live Mode", icon: <Camera size={16} />, shortcut: "Cmd+L", action: () => openPanel('liveMode') },
     { label: "Toggle Theme", icon: theme === "dark" ? <Sun size={16} /> : <Moon size={16} />, shortcut: "Cmd+T", action: () => handleUpdateSettings({...settings, theme: theme === "dark" ? "light" : "dark"}) },
   ];
 
   const defaultShortcuts: Record<string, () => void> = {
     "cmd+n": handleNewThread,
-    "cmd+k": () => setShowSearch(true),
+    "cmd+k": () => openPanel('search'),
     // Cmd+Shift+P shadowed by Chrome incognito (Plan v3 Bug #5); rebind to Cmd+Shift+K.
-    "cmd+shift+k": () => setShowCommandPalette(true),
-    "cmd+,": () => setShowSettings(true),
+    "cmd+shift+k": () => openPanel('commandPalette'),
+    "cmd+,": () => openPanel('settings'),
     "cmd+t": () => handleUpdateSettings({...settings, theme: theme === "dark" ? "light" : "dark"}),
-    "cmd+l": () => setShowLiveMode(true),
-    "f1": () => setShowHelp(true),
+    "cmd+l": () => openPanel('liveMode'),
+    "f1": () => openPanel('help'),
     // Feature 18: Undo/Redo — browser handles these natively for text inputs,
     // but we add explicit bindings so the shortcut editor can display them.
     "cmd+z": () => document.execCommand('undo'),
@@ -398,6 +496,56 @@ export default function App() {
     setThreads([...storage.getThreads()]);
 
     // Generate response
+    // Streaming placeholder for chunked model output.
+    const streamingMessageId = uuidv4();
+    const upsertStreamingModelMessage = (text: string) => {
+      if (!text) return;
+      setThreads((prev) => {
+        const threadIndex = prev.findIndex(t => t.id === threadForSend.id);
+        if (threadIndex < 0) return prev;
+
+        const thread = prev[threadIndex];
+        const messages = [...thread.messages];
+        const existingMessageIndex = messages.findIndex((m) => m.id === streamingMessageId);
+
+        const streamingMessage: Message = {
+          id: streamingMessageId,
+          role: 'model',
+          content: text,
+          timestamp: Date.now(),
+          type: 'text',
+        };
+
+        if (existingMessageIndex >= 0) {
+          messages[existingMessageIndex] = {
+            ...messages[existingMessageIndex],
+            ...streamingMessage,
+          };
+        } else {
+          messages.push(streamingMessage);
+        }
+
+        const nextThreads = [...prev];
+        nextThreads[threadIndex] = { ...thread, messages, updatedAt: Date.now() };
+        return nextThreads;
+      });
+    };
+
+    const clearStreamingModelMessage = () => {
+      setThreads((prev) => {
+        const threadIndex = prev.findIndex(t => t.id === threadForSend.id);
+        if (threadIndex < 0) return prev;
+
+        const thread = prev[threadIndex];
+        const messages = thread.messages.filter((m) => m.id !== streamingMessageId);
+        if (messages.length === thread.messages.length) return prev;
+
+        const nextThreads = [...prev];
+        nextThreads[threadIndex] = { ...thread, messages, updatedAt: Date.now() };
+        return nextThreads;
+      });
+    };
+
     try {
       const pi = storage.getPersonalIntelligence();
       const userPrefs = `User Preferences: ${pi.preferences}\nInstructions: ${pi.instructions}`;
@@ -411,6 +559,24 @@ export default function App() {
       // capabilities, its persistent memory directory, and the Tool:/Args: protocol
       // that parseToolRequest understands.
       const tools = await mcpClient.awaitTools();
+      if (!hasLocalEvidenceTools(tools) && requiresLocalToolEvidence(content)) {
+        const modelMsg: Message = {
+          id: uuidv4(),
+          role: 'model',
+          content: formatLocalToolUnavailableMessage(),
+          timestamp: Date.now(),
+          type: 'text',
+        };
+        const currentThread = storage.getThreads().find(t => t.id === threadForSend.id) || updatedThread;
+        await storage.saveThread({
+          ...currentThread,
+          messages: [...currentThread.messages, modelMsg],
+          updatedAt: Date.now(),
+        });
+        setThreads([...storage.getThreads()]);
+        return;
+      }
+
       const toolPrompt = buildAgentSystemPrompt(tools);
       const memoryNotice =
         `PERSISTENT MEMORY:\n` +
@@ -478,18 +644,20 @@ export default function App() {
           tools: geminiTools.length > 0 ? geminiTools : undefined,
         });
 
-        const result = await generateWithFailover({
+        const result = await generateWithFailoverStream({
           ai,
           model: selectedModel,
           fallbackModel: settings.models?.textFallback,
           contents: workingContents as any,
           config: generationConfig,
+          onChunk: (chunk) => {
+            responseText = chunk.aggregatedText;
+            upsertStreamingModelMessage(chunk.aggregatedText);
+          },
         });
         response = result.response;
-
-
+        responseText = result.responseText || responseText;
         const { text, functionCalls } = extractResponseParts(response);
-
         // ── In-flight budget interception ──────────────────────────────────
         // Evaluate cumulative token usage after each generation call. If the
         // running total exceeds configured thresholds, abort immediately to
@@ -571,7 +739,13 @@ export default function App() {
 
         // ── Text path: model returned a text response (possibly with Tool:/Args:) ──
         responseText = text;
-        const toolReq = parseToolRequest(responseText);
+        const parsedToolReq = parseToolRequestDetailed(responseText);
+        if (parsedToolReq.status === 'error') {
+          responseText = `The model emitted a malformed tool request for ${parsedToolReq.toolName}. No tool was executed. Error: ${parsedToolReq.message}`;
+          logger.warn('[agent-tools] Malformed legacy tool request:', parsedToolReq.rawArgs);
+          break;
+        }
+        const toolReq = parsedToolReq.status === 'ok' ? parsedToolReq.request : null;
         if (toolReq) {
           // Legacy fallback: model used text-based protocol
           try {
@@ -681,6 +855,7 @@ export default function App() {
         openArtifactInShell(detectedArtifacts[0]);
       }
     } catch (error) {
+      clearStreamingModelMessage();
       console.error('Error generating content:', error);
       alert(error instanceof Error ? error.message : String(error));
     } finally {
@@ -747,16 +922,19 @@ export default function App() {
         setActiveThreadId(id);
         setActiveArtifact(null);
       }}
-      onNewThread={whileClosingDrawer(handleNewThread)}
-      onOpenSettings={whileClosingDrawer(() => setShowSettings(true))}
-      onOpenGems={whileClosingDrawer(() => setShowGems(true))}
-      onOpenSchedule={whileClosingDrawer(() => setShowSchedule(true))}
-      onOpenPI={whileClosingDrawer(() => setShowPI(true))}
-      onOpenArtifacts={whileClosingDrawer(() => setShowArtifacts(true))}
-      onOpenLiveMode={whileClosingDrawer(() => setShowLiveMode(true))}
-      onOpenIntegrations={whileClosingDrawer(() => setShowIntegrations(true))}
-      onOpenHelp={whileClosingDrawer(() => setShowHelp(true))}
-      onOpenShortcutEditor={whileClosingDrawer(() => setShowShortcutEditor(true))}
+      onNewThread={() => {
+        closeMobileSidebar();
+        void handleNewThread();
+      }}
+      onOpenSettings={whileClosingDrawer('settings')}
+      onOpenGems={whileClosingDrawer('gems')}
+      onOpenSchedule={whileClosingDrawer('schedule')}
+      onOpenPI={whileClosingDrawer('pi')}
+      onOpenArtifacts={whileClosingDrawer('artifacts')}
+      onOpenLiveMode={whileClosingDrawer('liveMode')}
+      onOpenIntegrations={whileClosingDrawer('integrations')}
+      onOpenHelp={whileClosingDrawer('help')}
+      onOpenShortcutEditor={whileClosingDrawer('shortcutEditor')}
       onDeleteThread={handleDeleteThread}
       onRenameThread={handleRenameThread}
       onPinThread={handlePinThread}
@@ -771,14 +949,85 @@ export default function App() {
     />
   );
 
-  const renderChat = () => (
+  const renderVerticalHeader = (vertical: ShellVertical) => {
+    const Icon = vertical === 'mobile' ? Smartphone : vertical === 'tablet' ? Tablet : Monitor;
+    const label = vertical === 'mobile'
+      ? 'Phone focus'
+      : vertical === 'tablet'
+        ? 'Tablet command deck'
+        : 'Desktop operations bridge';
+    const detail = vertical === 'mobile'
+      ? 'One-hand chat with bottom-priority actions'
+      : vertical === 'tablet'
+        ? 'Touch-first two-pane workspace'
+        : 'Full three-pane production cockpit';
+
+    return (
+      <header role="region" className={`vertical-header vertical-header-${vertical}`} aria-label={`${label} interface`}>
+        <div className="vertical-header-title">
+          <div className="vertical-header-mark" aria-hidden="true">
+            <OfficialGeminiLottie
+              src={vertical === 'desktop' ? OFFICIAL_GEMINI_ASSETS.spinnerLottie : OFFICIAL_GEMINI_ASSETS.sparkLottie}
+              className="vertical-header-lottie"
+            />
+            <Icon size={18} />
+          </div>
+          <div>
+            <p>{label}</p>
+            <span>{detail}</span>
+          </div>
+        </div>
+        <div className="vertical-header-actions" aria-label={`${label} actions`}>
+          <button type="button" onClick={() => openPanel('artifacts')}>
+            <Layers size={16} aria-hidden="true" />
+            <span>Artifacts</span>
+          </button>
+          <button type="button" onClick={() => openPanel('liveMode')}>
+            <Zap size={16} aria-hidden="true" />
+            <span>Live</span>
+          </button>
+          {vertical === 'desktop' && (
+            <button type="button" onClick={() => setCanvasDrawerOpen((open) => !open)}>
+              <PanelRight size={16} aria-hidden="true" />
+              <span>{canvasDrawerOpen ? 'Hide canvas' : 'Show canvas'}</span>
+            </button>
+          )}
+        </div>
+      </header>
+    );
+  };
+
+  const renderMobileActionDock = () => (
+    <nav className="mobile-action-dock" aria-label="Phone quick actions">
+      <button type="button" onClick={() => void handleNewThread()}>
+        <Plus size={18} aria-hidden="true" />
+        <span>New</span>
+      </button>
+      <button type="button" onClick={() => openPanel('search')}>
+        <SearchIcon size={18} aria-hidden="true" />
+        <span>Search</span>
+      </button>
+      <button type="button" onClick={() => openPanel('artifacts')}>
+        <Layers size={18} aria-hidden="true" />
+        <span>Artifacts</span>
+      </button>
+      <button type="button" onClick={() => openPanel('liveMode')}>
+        <Camera size={18} aria-hidden="true" />
+        <span>Live</span>
+      </button>
+    </nav>
+  );
+
+  const renderChat = (vertical: ShellVertical) => (
     <div
       id="main-content"
       tabIndex={-1}
-      className="main-shell-content min-h-0 min-w-0 flex relative overflow-hidden outline-none"
+      className={`main-shell-content vertical-main vertical-main-${vertical} min-h-0 min-w-0 flex relative overflow-hidden outline-none`}
       role="main"
-      aria-label="Main chat area"
+      aria-label={`${vertical} main chat area`}
+      data-shell-vertical-region={vertical}
     >
+      {renderVerticalHeader(vertical)}
       <Chat
         messages={activeThread?.messages || []}
         onSendMessage={handleSendMessage}
@@ -797,6 +1046,7 @@ export default function App() {
         onRegenerate={handleRegenerate}
         onEditMessage={handleEditMessage}
       />
+      {vertical === 'mobile' && renderMobileActionDock()}
     </div>
   );
 
@@ -908,7 +1158,7 @@ export default function App() {
         {renderSidebar(true, setNavDrawerOpen)}
       </div>
 
-      {renderChat()}
+      {renderChat('mobile')}
 
       {activeArtifact && (
         <>
@@ -932,7 +1182,7 @@ export default function App() {
       <div className="tablet-sidebar-pane">
         {renderSidebar(true, () => undefined)}
       </div>
-      {renderChat()}
+      {renderChat('tablet')}
       {activeArtifact && (
         <>
           <div
@@ -953,7 +1203,7 @@ export default function App() {
       {renderSkipLink()}
       <OfflineIndicator />
       {renderSidebar(navDrawerOpen, setNavDrawerOpen)}
-      {renderChat()}
+      {renderChat('desktop')}
       {renderCanvas(canvasDrawerOpen, setCanvasDrawerOpen)}
     </>
   );
@@ -965,13 +1215,23 @@ export default function App() {
   return (
     <div
       data-shell-mode={shellMode}
-      className={`app-shell shell-${shellMode} bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 font-sans ${
+      data-shell-vertical={shellVertical}
+      className={`app-shell shell-${shellMode} vertical-${shellVertical} bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 font-sans ${
         shellMode === 'expanded' ? 'grid transition-[grid-template-columns] duration-300 ease-in-out' : ''
       }`}
       style={shellMode === 'expanded' ? {
         gridTemplateColumns: `${navDrawerOpen ? navRailOpenWidth : `${navRailClosedWidth}px`} minmax(0, 1fr) ${canvasDrawerOpen ? canvasRailOpenWidth : `${canvasRailClosedWidth}px`}`,
       } : undefined}
     >
+      <video
+        className="official-gemini-gel"
+        src={OFFICIAL_GEMINI_ASSETS.idleVideo}
+        autoPlay
+        muted
+        loop
+        playsInline
+        aria-hidden="true"
+      />
       {shellMode === 'compact' && renderCompactShell()}
       {shellMode === 'medium' && renderMediumShell()}
       {shellMode === 'expanded' && renderExpandedShell()}

@@ -11,6 +11,7 @@
 
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { readGeminiDefaultConfig } from '../server/default-config';
 
 const router = express.Router();
 
@@ -111,6 +112,45 @@ router.get('/health', async (_req, res) => {
     ['GET /api/tools', 'GET /api/diagnostic'],
     { tool: 'health', metadata: { startTime: Date.now() } }
   ));
+});
+
+function redactBrowserBootstrapSettings<TSettings extends { geminiApiKey?: string; gcpOAuthClientId?: string }>(
+  settings: TSettings,
+): TSettings {
+  return { ...settings, geminiApiKey: '', gcpOAuthClientId: '' };
+}
+
+router.get('/api/default-config', async (_req, res) => {
+  const startTime = Date.now();
+  try {
+    console.log('[API] Loading default GEMINI config');
+    const config = await readGeminiDefaultConfig();
+    console.log(`[API] Default GEMINI config loaded from ${config.sourcePath || 'fallback'}`);
+    res.json(flumResponse(
+      'success',
+      config.sourcePath
+        ? 'Default GEMINI configuration loaded.'
+        : 'Fallback GEMINI configuration loaded.',
+      'Use this payload to bootstrap first-run browser settings and personal intelligence.',
+      ['GET /api/diagnostic', 'GET /api/tools'],
+      {
+        tool: 'default_config',
+        metadata: { startTime, sourcePath: config.sourcePath },
+        advanced: {
+          settings: redactBrowserBootstrapSettings(config.settings),
+          personalIntelligence: config.personalIntelligence,
+        },
+      }
+    ));
+  } catch (error) {
+    res.status(500).json(flumResponse(
+      'failure',
+      'Default GEMINI configuration could not be loaded.',
+      'Check GEMINI_DEFAULT_CONFIG_PATH or the configured backup export path.',
+      ['GET /api/diagnostic'],
+      { tool: 'default_config', metadata: { startTime, error: error instanceof Error ? error.message : String(error) } }
+    ));
+  }
 });
 
 // ── MCP Detection ──────────────────────────────────────────────────────────
@@ -233,12 +273,18 @@ router.get('/api/desktop-commander/config', async (_req, res) => {
       { tool: 'get_config', metadata: { startTime }, advanced: { config } }
     ));
   } catch (error) {
-    res.status(500).json(flumResponse(
-      'failure',
-      `Could not load Desktop Commander configuration: ${String(error)}`,
-      'Ensure the GEMINI MCP server is running and Desktop Commander is connected.',
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const desktopCommanderUnavailable =
+      errorMsg.includes('requires Desktop Commander MCP') ||
+      errorMsg.includes('Desktop Commander not connected');
+    res.status(desktopCommanderUnavailable ? 200 : 500).json(flumResponse(
+      desktopCommanderUnavailable ? 'pending' : 'failure',
+      `Desktop Commander configuration unavailable: ${errorMsg}`,
+      desktopCommanderUnavailable
+        ? 'Desktop Commander is still initializing or disconnected. File tools may use the local fallback, but Desktop Commander privileges cannot be edited yet.'
+        : 'Ensure the GEMINI MCP server is running and Desktop Commander is connected.',
       ['GET /api/diagnostic'],
-      { tool: 'get_config', metadata: { startTime } }
+      { tool: 'get_config', metadata: { startTime, error: errorMsg } }
     ));
   }
 });

@@ -1,6 +1,7 @@
 import { openDB, IDBPDatabase } from 'idb';
 import { Thread, Gem, ScheduledAction, Artifact, PersonalIntelligence, AppSettings } from '../types';
 import { normalizeAutonomyMode } from './autonomy';
+import { normalizeMcpServers } from './mcp-server-config';
 
 // Browser-native persistence:
 //   - localStorage for small hot data (settings, personalIntelligence)
@@ -28,6 +29,12 @@ const STORE_ARTIFACTS = 'artifacts';
 
 const LS_SETTINGS_KEY = 'gemini-for-macos:settings';
 const LS_PI_KEY = 'gemini-for-macos:personalIntelligence';
+
+interface BootstrapConfigPayload {
+  settings?: Partial<AppSettings>;
+  personalIntelligence?: Partial<PersonalIntelligence>;
+}
+
 
 const defaultSettings: AppSettings = {
   theme: 'system',
@@ -124,7 +131,35 @@ function mergeSettings(partial: Partial<AppSettings> | null | undefined): AppSet
     ...defaultSettings,
     ...settings,
     autonomyMode: normalizeAutonomyMode(settings.autonomyMode),
+    mcpServers: normalizeMcpServers(settings.mcpServers),
   };
+}
+
+function resolveDefaultConfigEndpoint(): string | null {
+  if (typeof window === 'undefined' || typeof fetch !== 'function') return null;
+  if (!window.location.pathname.startsWith('/gemini')) return null;
+  const hostname = window.location.hostname;
+  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+  return isLocal
+    ? 'http://127.0.0.1:13001/api/default-config'
+    : `${window.location.origin}/api/default-config`;
+}
+
+async function readBootstrapConfig(): Promise<BootstrapConfigPayload | null> {
+  const endpoint = resolveDefaultConfigEndpoint();
+  if (!endpoint) return null;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 750);
+  try {
+    const response = await fetch(endpoint, { cache: 'no-store', signal: controller.signal });
+    if (!response.ok) return null;
+    const payload = await response.json() as { advanced?: BootstrapConfigPayload };
+    return payload.advanced && typeof payload.advanced === 'object' ? payload.advanced : null;
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 function mergePersonalIntelligence(partial: Partial<PersonalIntelligence> | null | undefined): PersonalIntelligence {
@@ -137,12 +172,22 @@ function mergePersonalIntelligence(partial: Partial<PersonalIntelligence> | null
 
 export const storage = {
   init: async (): Promise<void> => {
-    // Load small hot data from localStorage
+    // Load small hot data from localStorage. On a first browser launch through
+    // the GEMINI app route, seed missing values from the server-owned default
+    // backup config before falling back to compiled defaults.
     const settingsRaw = readLocalStorageJSON<Partial<AppSettings> | null>(LS_SETTINGS_KEY, null);
-    memoryCache.settings = mergeSettings(settingsRaw);
-
     const piRaw = readLocalStorageJSON<Partial<PersonalIntelligence> | null>(LS_PI_KEY, null);
-    memoryCache.personalIntelligence = mergePersonalIntelligence(piRaw);
+    const bootstrap = (!settingsRaw || !piRaw) ? await readBootstrapConfig() : null;
+
+    memoryCache.settings = mergeSettings(settingsRaw ?? bootstrap?.settings);
+    memoryCache.personalIntelligence = mergePersonalIntelligence(piRaw ?? bootstrap?.personalIntelligence);
+
+    if (settingsRaw || bootstrap?.settings) {
+      writeLocalStorageJSON(LS_SETTINGS_KEY, memoryCache.settings);
+    }
+    if (!piRaw && bootstrap?.personalIntelligence) {
+      writeLocalStorageJSON(LS_PI_KEY, memoryCache.personalIntelligence);
+    }
 
     // Load bulk data from IndexedDB
     memoryCache.threads = await safeGetAll<Thread>(STORE_THREADS);

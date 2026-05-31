@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Download, Shield, ShieldAlert, Zap, Lock, Globe, HardDrive, BookOpen, Radar, RefreshCw } from 'lucide-react';
+import { X, Download, Shield, ShieldAlert, Zap, Lock, Globe, HardDrive, BookOpen, Radar, RefreshCw, FolderOpen, Plus } from 'lucide-react';
 import { backup } from '../lib/backup';
 import { AppSettings, AutonomyMode, ModelSettings, DEFAULT_MODEL_SETTINGS } from '../types';
 import { DEFAULT_MODEL_IDS } from '../lib/model-catalog';
@@ -26,6 +26,32 @@ const MODEL_CAPABILITY_LABELS: Record<keyof ModelSettings, string> = {
 };
 
 const CUSTOM_MODEL_SENTINEL = '__custom__';
+
+interface DirectoryEntry {
+  name: string;
+  path: string;
+}
+
+export function parseDirectoryEntries(result: string, currentPath: string): DirectoryEntry[] {
+  const base = currentPath.replace(/\/+$/, '') || '/';
+  return result
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('[DIR] '))
+    .map((line) => line.slice(6).trim())
+    .filter((name) => name.length > 0 && name !== '.' && name !== '..')
+    .map((name) => ({
+      name,
+      path: base === '/' ? `/${name}` : `${base}/${name}`,
+    }));
+}
+
+function parentDirectory(path: string): string {
+  const trimmed = path.trim().replace(/\/+$/, '');
+  if (!trimmed || trimmed === '/') return '/';
+  const parent = trimmed.slice(0, trimmed.lastIndexOf('/'));
+  return parent || '/';
+}
 
 export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps) {
   const [apiKeyDraft, setApiKeyDraft] = useState(settings.geminiApiKey || '');
@@ -154,6 +180,10 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
   const [mcpStatusError, setMcpStatusError] = useState<string | null>(null);
   const [desktopCommanderConfig, setDesktopCommanderConfig] = useState<Record<string, any> | null>(null);
   const [allowedDirectoriesDraft, setAllowedDirectoriesDraft] = useState('');
+  const [directoryExplorerPath, setDirectoryExplorerPath] = useState('/Applications');
+  const [directoryExplorerEntries, setDirectoryExplorerEntries] = useState<DirectoryEntry[]>([]);
+  const [directoryExplorerLoading, setDirectoryExplorerLoading] = useState(false);
+  const [directoryExplorerError, setDirectoryExplorerError] = useState<string | null>(null);
   const MCP_API_BASE = resolveMcpHttpBase();
 
   const refreshMcpStatus = async () => {
@@ -193,6 +223,39 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
     });
     if (!resp.ok) throw new Error(`Failed to update allowedDirectories: HTTP ${resp.status}`);
     await refreshMcpStatus();
+  };
+
+  const handleBrowseDirectory = async (path = directoryExplorerPath) => {
+    const nextPath = path.trim() || '/';
+    setDirectoryExplorerLoading(true);
+    setDirectoryExplorerError(null);
+    try {
+      const resp = await fetch(`${MCP_API_BASE}/api/execute?action=list_directory&path=${encodeURIComponent(nextPath)}`, {
+        method: 'POST',
+      });
+      const payload = await resp.json();
+      const result = String(payload.result ?? '');
+      if (!resp.ok || payload.status === 'failure' || result.startsWith('Error:')) {
+        throw new Error(result || `Failed to list directory: HTTP ${resp.status}`);
+      }
+      setDirectoryExplorerPath(nextPath);
+      setDirectoryExplorerEntries(parseDirectoryEntries(result, nextPath));
+    } catch (err) {
+      setDirectoryExplorerEntries([]);
+      setDirectoryExplorerError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDirectoryExplorerLoading(false);
+    }
+  };
+
+  const handleAddAllowedDirectory = (path: string) => {
+    const normalized = path.trim().replace(/\/+$/, '') || '/';
+    const existing = allowedDirectoriesDraft
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean);
+    if (existing.includes(normalized)) return;
+    setAllowedDirectoriesDraft([...existing, normalized].join('\n'));
   };
 
   useEffect(() => {
@@ -514,6 +577,78 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                   rows={4}
                   className="w-full px-3 py-2 text-sm bg-white dark:bg-[#2a2b2c] border border-gray-200 dark:border-gray-700 rounded-lg font-mono"
                 />
+                <div className="mt-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-[#1e1f20]">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-300">
+                    <FolderOpen size={14} />
+                    File explorer
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="text"
+                      aria-label="Directory explorer path"
+                      value={directoryExplorerPath}
+                      onChange={(e) => setDirectoryExplorerPath(e.target.value)}
+                      className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-700 dark:bg-[#131314] dark:text-white"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleBrowseDirectory(parentDirectory(directoryExplorerPath))}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+                      >
+                        Up
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleBrowseDirectory()}
+                        disabled={directoryExplorerLoading}
+                        className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-black disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
+                      >
+                        {directoryExplorerLoading ? 'Browsing…' : 'Browse'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAddAllowedDirectory(directoryExplorerPath)}
+                        className="inline-flex items-center gap-1 rounded-lg bg-purple-600 px-3 py-2 text-xs font-medium text-white hover:bg-purple-700"
+                      >
+                        <Plus size={13} />
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                  {directoryExplorerError ? (
+                    <div className="mt-2 rounded-md bg-red-50 px-2 py-1 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-200">
+                      {directoryExplorerError}
+                    </div>
+                  ) : null}
+                  {directoryExplorerEntries.length > 0 ? (
+                    <div className="mt-3 max-h-40 overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-800">
+                      {directoryExplorerEntries.map((entry) => (
+                        <div key={entry.path} className="flex items-center justify-between gap-2 border-b border-gray-100 px-2 py-1.5 last:border-b-0 dark:border-gray-800">
+                          <button
+                            type="button"
+                            onClick={() => handleBrowseDirectory(entry.path)}
+                            className="min-w-0 flex-1 truncate text-left text-xs font-mono text-gray-700 hover:text-purple-700 dark:text-gray-200 dark:hover:text-purple-300"
+                            title={entry.path}
+                          >
+                            {entry.name}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAddAllowedDirectory(entry.path)}
+                            className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-purple-700 hover:bg-purple-50 dark:text-purple-200 dark:hover:bg-purple-900/30"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-xs text-gray-500">
+                      Browse a folder, then add the current path or one of its child folders to the allowlist.
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center justify-between mt-2 gap-3">
                   <div className="text-xs text-gray-500">
                     You decide Desktop Commander privileges. The directory lock above is an additional GEMINI-side guardrail.
@@ -562,6 +697,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                         <option value="stdio">stdio</option>
                         <option value="websocket">websocket</option>
                         <option value="sse">sse</option>
+                        <option value="http">http</option>
                       </select>
                       <label className="relative inline-flex items-center cursor-pointer ml-2">
                         <input

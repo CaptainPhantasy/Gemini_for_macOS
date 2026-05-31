@@ -119,6 +119,81 @@ describe('storage round-trip', () => {
     expect('scopedPaths' in reloaded).toBe(false);
   });
 
+  test('init sanitizes persisted MCP servers before reconnecting backend tools', async () => {
+    localStorage.setItem(
+      'gemini-for-macos:settings',
+      JSON.stringify({
+        ...storage.getSettings(),
+        mcpServers: [
+          { id: 'blank', name: 'New Server', type: 'stdio', command: '', args: [], enabled: true },
+          { id: 'floyd', name: 'floyd-labs', type: 'stdio', command: 'npx', args: ['-y', '@anthropics/mcp-proxy'], enabled: true },
+          { id: 'omega', name: 'omega-v2', type: 'stdio', command: 'node', args: ['/tmp/omega.js'], enabled: true },
+        ],
+      })
+    );
+
+    await storage.init();
+
+    const servers = storage.getSettings().mcpServers;
+    expect(servers.some(server => server.name === 'New Server')).toBe(false);
+    expect(servers.find(server => server.name === 'floyd-labs')).toMatchObject({
+      type: 'sse',
+      url: 'https://floydslabs.com/api/mcp',
+    });
+    expect(servers.find(server => server.name === 'omega-v2')).toMatchObject({
+      type: 'stdio',
+      command: 'node',
+    });
+    const persisted = JSON.parse(localStorage.getItem('gemini-for-macos:settings') || '{}') as AppSettings;
+    expect(persisted.mcpServers.some(server => server.name === 'New Server')).toBe(false);
+    expect(persisted.mcpServers.find(server => server.name === 'floyd-labs')).toMatchObject({
+      type: 'sse',
+      url: 'https://floydslabs.com/api/mcp',
+    });
+  });
+
+  test('init bootstraps defaults from backend config on the Gemini app route', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalUrl = window.location.href;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      status: 'success',
+      advanced: {
+        settings: {
+          theme: 'gemini',
+          autonomyMode: 'ask',
+          directoryLock: { enabled: false, rootPath: '' },
+          googleDriveEnabled: true,
+          notebookLmEnabled: true,
+          searchEnabled: true,
+          mcpServers: [
+            { id: 'desktop-commander', name: 'Desktop Commander MCP', type: 'websocket', url: 'ws://localhost:13001/mcp', enabled: true },
+            { id: 'echo-mcp', name: 'Echo MCP', type: 'stdio', command: '/opt/homebrew/bin/node', args: ['--import', 'tsx', '/Volumes/SanDisk1Tb/GEMINI for MacOS/src/server/echo-mcp-server.ts'], enabled: true },
+          ],
+          geminiApiKey: 'test-key',
+          gcpOAuthClientId: 'oauth-client',
+          autoSyncArtifacts: true,
+        },
+        personalIntelligence: { preferences: 'direct', instructions: 'Use tools.' },
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    globalThis.fetch = fetchMock as typeof fetch;
+    window.history.pushState({}, '', '/gemini/');
+    lsBacking.clear();
+
+    try {
+      await storage.init();
+    } finally {
+      globalThis.fetch = originalFetch;
+      window.history.pushState({}, '', originalUrl);
+    }
+
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:13001/api/default-config', expect.any(Object));
+    expect(storage.getSettings().theme).toBe('gemini');
+    expect(storage.getSettings().mcpServers.map(server => server.name)).toEqual(['Desktop Commander MCP', 'Echo MCP']);
+    expect(storage.getPersonalIntelligence().instructions).toBe('Use tools.');
+    expect(JSON.parse(localStorage.getItem('gemini-for-macos:settings') || '{}').theme).toBe('gemini');
+  });
+
   test('savePersonalIntelligence round-trip', async () => {
     const pi: PersonalIntelligence = {
       preferences: 'concise',

@@ -158,16 +158,18 @@ export function extractResponseParts(response: any): {
   text: string;
   functionCalls: Array<{ name: string; args: Record<string, unknown>; id?: string }>;
 } {
-  const text: string = '';
+  const textParts: string[] = [];
   const functionCalls: Array<{ name: string; args: Record<string, unknown>; id?: string }> = [];
 
-  // The response may have .text property or .candidates[0].content.parts
+  // The response may have .candidates[0].content.parts with text, function
+  // calls, or both. Gemini can emit a short text preamble before a function
+  // call; dropping the call would turn a real tool request into a hallucinated
+  // "I will..." answer. Preserve both and let the caller prioritize tools.
   const candidates = (response as any)?.candidates;
   if (candidates?.[0]?.content?.parts) {
     for (const part of candidates[0].content.parts) {
-      if (part.text) {
-        // Text part present — no function calls in this response.
-        return { text: part.text, functionCalls: [] };
+      if (typeof part.text === 'string' && part.text.length > 0) {
+        textParts.push(part.text);
       }
       if (part.functionCall) {
         functionCalls.push({
@@ -180,15 +182,19 @@ export function extractResponseParts(response: any): {
     }
   }
 
+  const partText = textParts.join('\n');
+  if (functionCalls.length > 0) {
+    return { text: partText, functionCalls };
+  }
+  if (partText) {
+    return { text: partText, functionCalls: [] };
+  }
+
   // Fallback: .text property (some SDK versions)
   const textOrFn: any = (response as any).text;
   const responseText = typeof textOrFn === 'function' ? textOrFn() : textOrFn || '';
 
-  if (responseText && functionCalls.length === 0) {
-    return { text: responseText, functionCalls: [] };
-  }
-
-  return { text: '', functionCalls };
+  return { text: responseText, functionCalls: [] };
 }
 
 /**
@@ -402,6 +408,114 @@ items are BLOCKED/FAILED/NOT STARTED. All checks PASS → COMPLETE. Any fail →
 INCOMPLETE.`;
 }
 
+// ── local evidence guards ───────────────────────────────────────────────
+
+const LOCAL_EVIDENCE_TOOL_NAMES = new Set([
+  'read_file',
+  'write_file',
+  'list_directory',
+  'execute_command',
+  'delete_file',
+  'create_directory',
+  'file_info',
+  'get_file_info',
+  'edit_block',
+  'start_search',
+  'get_more_search_results',
+  'start_process',
+  'interact_with_process',
+  'read_process_output',
+  'force_terminate',
+  'list_sessions',
+  'list_processes',
+  'kill_process',
+  'move_file',
+]);
+
+const LOCAL_EVIDENCE_REQUEST_PATTERN =
+  /\b(read|list|inspect|open|check|verify|run|execute|test|lint|type-?check|build|write|create|delete|modify|edit|update|move|rename|search|find)\b/i;
+const LOCAL_TARGET_PATTERN =
+  /(?:^|\s)(?:\.{0,2}\/|~\/|\/Volumes\/|\/Users\/|[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|json|md|css|html|txt|yml|yaml|toml|lock)\b|\b(?:file|folder|directory|repo|repository|project|workspace|command|terminal|shell|npm|node|python|git)\b)/i;
+
+export function hasLocalEvidenceTools(tools: ToolDefinition[]): boolean {
+  return tools.some((tool) => LOCAL_EVIDENCE_TOOL_NAMES.has(tool.name));
+}
+
+export function requiresLocalToolEvidence(text: string): boolean {
+  return LOCAL_EVIDENCE_REQUEST_PATTERN.test(text) && LOCAL_TARGET_PATTERN.test(text);
+}
+
+export function formatLocalToolUnavailableMessage(): string {
+  return 'No current-session evidence available. The local file/command tool backend is unavailable, so GEMINI did not inspect files, run commands, or modify anything. Restart the MCP server at ws://localhost:13001/mcp, then retry the request.';
+}
+
+export type ToolRequestParseResult =
+  | { status: 'none' }
+  | { status: 'ok'; request: ToolRequest }
+  | { status: 'error'; toolName: string; message: string; rawArgs: string };
+
+function extractLeadingJsonObject(text: string): string {
+  const start = text.indexOf('{');
+  if (start === -1) return text;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const char = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  return text.slice(start);
+}
+
+export function parseToolRequestDetailed(text: string): ToolRequestParseResult {
+  const toolMatch = text.match(/Tool:\s*([a-zA-Z0-9_.:-]+)/i);
+  if (!toolMatch) return { status: 'none' };
+
+  const toolName = toolMatch[1];
+  const argsStart = text.search(/Args:\s*/i);
+  if (argsStart === -1) return { status: 'ok', request: { toolName, args: {} } };
+
+  const rawArgs = extractLeadingJsonObject(text.slice(argsStart).replace(/^Args:\s*/i, '').trim());
+  if (!rawArgs) return { status: 'ok', request: { toolName, args: {} } };
+
+  try {
+    const parsed = JSON.parse(rawArgs);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { status: 'error', toolName, message: 'Args must be a JSON object.', rawArgs };
+    }
+    return { status: 'ok', request: { toolName, args: parsed as Record<string, unknown> } };
+  } catch (error) {
+    return {
+      status: 'error',
+      toolName,
+      message: error instanceof Error ? error.message : String(error),
+      rawArgs,
+    };
+  }
+}
+
 //t-based tool protocol (kept for fallback) ────────────────
 
 /**
@@ -409,15 +523,8 @@ INCOMPLETE.`;
  * This is a fallback for models that don't support native function calling.
  */
 export function parseToolRequest(text: string): ToolRequest | null {
-  const toolMatch = text.match(/Tool:\s*(\w+)/i);
-  const argsMatch = text.match(/Args:\s*({[\s\S]*?})/i);
-
-  if (!toolMatch) return null;
-
-  const toolName = toolMatch[1];
-  const args = argsMatch ? JSON.parse(argsMatch[1]) : {};
-
-  return { toolName, args };
+  const parsed = parseToolRequestDetailed(text);
+  return parsed.status === 'ok' ? parsed.request : null;
 }
 
 // ── helpers ────────────────────────────────────────────────────────────

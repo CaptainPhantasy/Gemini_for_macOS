@@ -10,6 +10,19 @@
       "url": "ws://localhost:13001/mcp",
       "enabled": true,
       "description": "Local file system access with read/write/execute capabilities"
+    },
+    {
+      "id": "echo-mcp",
+      "name": "Echo MCP",
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/node",
+      "args": [
+        "--import",
+        "tsx",
+        "/Volumes/SanDisk1Tb/GEMINI for MacOS/src/server/echo-mcp-server.ts"
+      ],
+      "enabled": true,
+      "description": "MCP smoke-test server with echo-style diagnostic tools"
     }
   ],
   "agentCapabilities": {

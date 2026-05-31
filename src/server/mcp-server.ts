@@ -20,6 +20,11 @@ import os from 'os';
 import apiRoutes, { setMcpContext, type McpContext } from '../lib/api-routes';
 import appApiRoutes from '../lib/app-api-routes';
 import { dispatchJules } from './jules-agent';
+import { getDesktopCommanderLaunchCandidates, type DesktopCommanderLaunchCandidate } from './desktop-commander-launch';
+import { getAutoloadProjectServerNames, readGeminiDefaultConfig } from './default-config';
+import { appendReadyClientTools } from './mcp-tool-aggregation';
+import { resolveConfiguredHeaders } from './mcp-header-config';
+import { normalizeMcpServers } from '../lib/mcp-server-config';
 
 const execAsync = promisify(exec);
 
@@ -60,91 +65,118 @@ class DesktopCommanderSubprocess {
   }
 
   private async _doStart(): Promise<void> {
-    const dcPath = '/Applications/Desktop Commander.app/Contents/Resources/bundled-mcpb/dist/index.js';
+    const candidates = getDesktopCommanderLaunchCandidates();
+    const failures: string[] = [];
 
-    try {
-      // Verify Desktop Commander exists
-      await fs.access(dcPath);
-
-      this.proc = spawn('node', [dcPath], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, MCP_DXT: 'true', NODE_ENV: 'production' },
-      });
-
-      this.proc.stdout?.setEncoding('utf8');
-      this.proc.stderr?.on('data', (data) => {
-        const msg = data.toString().trim();
-        if (msg) console.log('[Desktop Commander]', msg);
-      });
-
-      this.proc.on('error', (err) => {
-        console.error('[Desktop Commander] Process error:', err);
-      });
-
-      this.proc.on('exit', (code) => {
-        console.log(`[Desktop Commander] Process exited with code ${code}`);
+    for (const candidate of candidates) {
+      try {
+        await this.startCandidate(candidate);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push(`${candidate.source}: ${message}`);
+        console.error(`[Desktop Commander] Launch candidate failed (${candidate.source}):`, error);
+        this.proc?.kill();
         this.proc = null;
         this.initialized = false;
-      });
-
-      // Handle responses - accumulate data until we have complete lines
-      let buffer = '';
-      this.proc.stdout?.on('data', (data: string) => {
-        buffer += data;
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const resp = JSON.parse(line) as DCResponse;
-            console.log('[Desktop Commander] Response:', JSON.stringify(resp).slice(0, 100));
-            if (resp.id && this.pendingRequests.has(resp.id)) {
-              const { resolve, reject } = this.pendingRequests.get(resp.id)!;
-              this.pendingRequests.delete(resp.id);
-              if (resp.error) {
-                console.error('[Desktop Commander] Error response:', resp.error);
-                reject(new Error(resp.error.message));
-              } else {
-                resolve(resp.result);
-              }
-            }
-          } catch (e) {
-            console.warn('[Desktop Commander] Parse error for line:', line.slice(0, 100));
-          }
-        }
-      });
-
-      // Give Desktop Commander time to start
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Initialize Desktop Commander
-      console.log('[Desktop Commander] Sending initialize...');
-      try {
-        const initResult = await this.sendRequest('initialize', {
-          protocolVersion: '2024-11-05',
-          capabilities: { tools: {}, resources: {}, prompts: {} },
-          clientInfo: { name: 'GEMINI-for-MacOS', version: '1.0.0' },
-        });
-        console.log('[Desktop Commander] Initialize result:', JSON.stringify(initResult).slice(0, 200));
-      } catch (e) {
-        console.error('[Desktop Commander] Initialize failed:', e);
-        // Continue anyway - Desktop Commander might work without full init
+        this.toolCache = [];
       }
-
-      // Try to get tool list
-      try {
-        const toolResult = (await this.sendRequest('tools/list', {})) as { tools: ToolDefinition[] };
-        this.toolCache = toolResult.tools || [];
-        this.initialized = true;
-        console.log(`[Desktop Commander] Connected with ${this.toolCache.length} tools`);
-      } catch (e) {
-        console.error('[Desktop Commander] tools/list failed:', e);
-        // Continue with empty tools - fallback will be used
-      }
-    } catch (error) {
-      console.error('[Desktop Commander] Failed to start:', error);
-      // Don't throw - allow MCP server to run with fallback tools
     }
+
+    console.error(`[Desktop Commander] Failed to start all launch candidates: ${failures.join(' | ')}`);
+    // Don't throw - allow MCP server to run with fallback tools.
+  }
+
+  private async startCandidate(candidate: DesktopCommanderLaunchCandidate): Promise<void> {
+    console.log(`[Desktop Commander] Starting via ${candidate.source}: ${candidate.command} ${candidate.args.join(' ')}`);
+    this.pendingRequests.clear();
+    this.initialized = false;
+    this.toolCache = [];
+
+    const proc = spawn(candidate.command, candidate.args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, MCP_DXT: 'true', NODE_ENV: 'production' },
+    });
+    this.proc = proc;
+
+    let startupError: Error | null = null;
+
+    proc.stdout?.setEncoding('utf8');
+    proc.stderr?.on('data', (data) => {
+      const msg = data.toString().trim();
+      if (msg) console.log(`[Desktop Commander:${candidate.source}]`, msg);
+    });
+
+    proc.on('error', (err) => {
+      startupError = err;
+      console.error(`[Desktop Commander:${candidate.source}] Process error:`, err);
+      this.rejectPending(err);
+    });
+
+    proc.on('exit', (code) => {
+      if (this.proc === proc) {
+        console.log(`[Desktop Commander:${candidate.source}] Process exited with code ${code}`);
+        this.proc = null;
+        this.initialized = false;
+        this.rejectPending(new Error(`Desktop Commander exited with code ${code}`));
+      }
+    });
+
+    // Handle responses - accumulate data until we have complete lines.
+    let buffer = '';
+    proc.stdout?.on('data', (data: string) => {
+      buffer += data;
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer.
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const resp = JSON.parse(line) as DCResponse;
+          console.log('[Desktop Commander] Response:', JSON.stringify(resp).slice(0, 100));
+          if (resp.id && this.pendingRequests.has(resp.id)) {
+            const { resolve, reject } = this.pendingRequests.get(resp.id)!;
+            this.pendingRequests.delete(resp.id);
+            if (resp.error) {
+              console.error('[Desktop Commander] Error response:', resp.error);
+              reject(new Error(resp.error.message));
+            } else {
+              resolve(resp.result);
+            }
+          }
+        } catch {
+          console.warn('[Desktop Commander] Parse error for line:', line.slice(0, 100));
+        }
+      }
+    });
+
+    // Give Desktop Commander time to start.
+    await new Promise(resolve => setTimeout(resolve, 500));
+    if (startupError) throw startupError;
+
+    console.log(`[Desktop Commander] Sending initialize (${candidate.source})...`);
+    try {
+      const initResult = await this.sendRequest('initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {}, resources: {}, prompts: {} },
+        clientInfo: { name: 'GEMINI-for-MacOS', version: '1.0.0' },
+      });
+      console.log('[Desktop Commander] Initialize result:', JSON.stringify(initResult).slice(0, 200));
+    } catch (error) {
+      console.error(`[Desktop Commander] Initialize failed (${candidate.source}):`, error);
+      // Continue anyway - Desktop Commander might work without full init.
+    }
+
+    const toolResult = (await this.sendRequest('tools/list', {})) as { tools: ToolDefinition[] };
+    this.toolCache = toolResult.tools || [];
+    this.initialized = true;
+    console.log(`[Desktop Commander] Connected with ${this.toolCache.length} tools via ${candidate.source}`);
+  }
+
+  private rejectPending(error: Error): void {
+    for (const pending of this.pendingRequests.values()) {
+      pending.reject(error);
+    }
+    this.pendingRequests.clear();
   }
 
   private sendRequest(method: string, params?: Record<string, unknown>): Promise<unknown> {
@@ -355,6 +387,7 @@ class SSEMcpClient {
   constructor(
     private name: string,
     private serverUrl: string,
+    private headers: Record<string, string> = {},
   ) {}
 
   async start(): Promise<void> {
@@ -417,6 +450,7 @@ class SSEMcpClient {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json, text/event-stream',
+          ...this.headers,
         },
         body,
         signal: controller.signal,
@@ -590,6 +624,8 @@ interface MCPResponse {
   };
 }
 
+
+
 class MCPServer {
   private app = express();
   private wss: WebSocketServer | null = null;
@@ -598,6 +634,7 @@ class MCPServer {
   private stdioClients: StdioMcpClient[] = [];
   private sseClients: SSEMcpClient[] = [];
   private stdioRegistry = new Map<string, { command: string; args: string[]; env: Record<string, string> }>();
+  private registryLoadPromise: Promise<void>;
 
   constructor() {
     this.setupExpress();
@@ -605,12 +642,14 @@ class MCPServer {
     this.desktopCommander.start().catch((err) => {
       console.error('[MCP] Desktop Commander startup failed:', err);
     });
-    // Load project-local MCP registry without starting those servers.
-    // Servers are spawned lazily only when list_mcp_server_tools/call_mcp_tool
-    // targets a specific server.
-    this.loadProjectMcpRegistry().catch((err) => {
-      console.error('[MCP] Project MCP registry load failed:', err);
-    });
+    // Load project-local MCP registry, then auto-start only the first-run
+    // default servers that should be present in the model tool context.
+    this.registryLoadPromise = this.loadProjectMcpRegistry();
+    this.registryLoadPromise
+      .then(() => this.startDefaultProjectServers())
+      .catch((err) => {
+        console.error('[MCP] Project MCP registry load failed:', err);
+      });
     // Auto-start SSE MCP servers from environment config
     this.startSSEServers();
 
@@ -637,6 +676,7 @@ class MCPServer {
           command?: string;
           args?: string[];
           env?: Record<string, string>;
+          headers?: Record<string, string>;
           enabled?: boolean;
           type?: string;
           url?: string;
@@ -645,7 +685,12 @@ class MCPServer {
 
       const servers = config.mcpServers || {};
       for (const [name, cfg] of Object.entries(servers)) {
-        if (cfg.enabled === false || typeof cfg.command !== 'string') continue;
+        if (cfg.enabled === false) continue;
+        if (typeof cfg.url === 'string' && (cfg.type === 'sse' || cfg.type === 'http' || !cfg.command)) {
+          await this.addSSEServer(name, cfg.url, resolveConfiguredHeaders(cfg.headers, cfg.env));
+          continue;
+        }
+        if (typeof cfg.command !== 'string') continue;
         this.stdioRegistry.set(name, {
           command: cfg.command,
           args: cfg.args || [],
@@ -657,6 +702,38 @@ class MCPServer {
     } catch (error) {
       console.warn(`[MCP] No project .mcp.json registry loaded: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+  private async startDefaultProjectServers(): Promise<void> {
+    const config = await readGeminiDefaultConfig();
+    const names = getAutoloadProjectServerNames(config.settings.mcpServers);
+    console.log(`[MCP] Default project MCP autoload targets: ${names.join(', ') || '(none)'}`);
+    let connected = 0;
+
+    for (const name of names) {
+      if (!this.stdioRegistry.has(name)) {
+        const server = config.settings.mcpServers.find(item => (
+          (item.id === 'echo-mcp' ? item.id : item.name || item.id) === name &&
+          item.type === 'stdio' &&
+          typeof item.command === 'string'
+        ));
+        if (server?.command) {
+          this.stdioRegistry.set(name, {
+            command: server.command,
+            args: server.args || [],
+            env: {},
+          });
+        }
+      }
+
+      try {
+        const client = await this.ensureStdioClient(name);
+        if (client.isReady()) connected += 1;
+      } catch (error) {
+        console.warn(`[MCP] Default project MCP '${name}' failed to autoload:`, error);
+      }
+    }
+
+    console.log(`[MCP] Default project MCP autoload complete: ${connected}/${names.length} connected`);
   }
 
   private async ensureStdioClient(name: string): Promise<StdioMcpClient> {
@@ -677,9 +754,9 @@ class MCPServer {
     const sseConfig = process.env.MCP_SSE_SERVERS;
     if (sseConfig) {
       try {
-        const servers = JSON.parse(sseConfig) as Array<{ name: string; url: string }>;
+        const servers = JSON.parse(sseConfig) as Array<{ name: string; url: string; headers?: Record<string, string> }>;
         for (const server of servers) {
-          await this.addSSEServer(server.name, server.url);
+          await this.addSSEServer(server.name, server.url, server.headers || {});
         }
       } catch (e) {
         console.error('[MCP] Failed to parse MCP_SSE_SERVERS env:', e);
@@ -690,10 +767,10 @@ class MCPServer {
     try {
       const settingsPath = path.join(os.homedir(), '.gemini-for-macos', 'mcp-sse-servers.json');
       const raw = await fs.readFile(settingsPath, 'utf-8');
-      const servers = JSON.parse(raw) as Array<{ name: string; url: string; enabled?: boolean }>;
+      const servers = JSON.parse(raw) as Array<{ name: string; url: string; enabled?: boolean; headers?: Record<string, string> }>;
       for (const server of servers) {
         if (server.enabled !== false) {
-          await this.addSSEServer(server.name, server.url);
+          await this.addSSEServer(server.name, server.url, server.headers || {});
         }
       }
     } catch {
@@ -701,13 +778,13 @@ class MCPServer {
     }
   }
 
-  async addSSEServer(name: string, url: string): Promise<{ tools: number; connected: boolean }> {
+  async addSSEServer(name: string, url: string, headers: Record<string, string> = {}): Promise<{ tools: number; connected: boolean }> {
     const existing = this.sseClients.find(client => client.getName() === name);
     if (existing) {
       return { tools: existing.getTools().length, connected: existing.isReady() };
     }
 
-    const client = new SSEMcpClient(name, url);
+    const client = new SSEMcpClient(name, url, headers);
     this.sseClients.push(client);
     await client.start();
 
@@ -725,20 +802,25 @@ class MCPServer {
     url?: string;
     enabled?: boolean;
   }>): Promise<{ status: string; started: number }> {
-    if (!Array.isArray(servers)) return { status: 'ignored', started: 0 };
+    const normalizedServers = Array.isArray(servers) ? normalizeMcpServers(servers) : [];
+    if (normalizedServers.length === 0) return { status: 'ignored', started: 0 };
+    await this.registryLoadPromise.catch(() => {});
 
     let started = 0;
-    for (const server of servers) {
+    for (const server of normalizedServers) {
       if (server.enabled === false) continue;
-      const name = server.name || server.id;
+      const name = server.id === 'echo-mcp' ? server.id : server.name || server.id;
       if (!name) continue;
 
-      if (server.type === 'sse' && server.url) {
+      if ((server.type === 'sse' || server.type === 'http') && server.url) {
         await this.addSSEServer(name, server.url);
         started += 1;
       } else if (server.type === 'stdio' && server.command) {
-        this.stdioRegistry.set(name, { command: server.command, args: server.args || [], env: {} });
-        started += 1;
+        if (!this.stdioRegistry.has(name)) {
+          this.stdioRegistry.set(name, { command: server.command, args: server.args || [], env: {} });
+        }
+        const client = await this.ensureStdioClient(name);
+        if (client.isReady()) started += 1;
       }
     }
 
@@ -978,6 +1060,10 @@ class MCPServer {
       console.log(`[MCP] Using ${dcTools.length} Desktop Commander tools`);
       allTools.push(...dcTools);
     }
+
+    // Auto-loaded project stdio MCP tools must be visible directly in the
+    // model's initial tool list, not only behind the gateway wrapper.
+    appendReadyClientTools(allTools, this.stdioClients);
 
     // SSE MCP client tools
     for (const client of this.sseClients) {

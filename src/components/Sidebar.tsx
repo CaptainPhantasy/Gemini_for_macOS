@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type PointerEvent } from 'react';
 import {
   Plus,
   MessageSquare,
@@ -107,6 +107,12 @@ export function Sidebar({
   const [editTitle, setEditTitle] = useState('');
   const [filter, setFilter] = useState('');
   const [expandedThreadIds, setExpandedThreadIds] = useState<Record<string, boolean>>({});
+
+  const activateOverlayButton = (handler: () => void) => (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    handler();
+  };
 
   const startEditing = (thread: Thread) => {
     setEditingId(thread.id);
@@ -373,31 +379,31 @@ export function Sidebar({
             </div>
           )}
 
-          <button onClick={onOpenArtifacts} title="Artifact Library" className={`flex w-full items-center gap-3 rounded-xl py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c] ${drawerOpen ? 'px-2 justify-start' : 'px-2 justify-center'}`}>
+          <button onPointerDown={activateOverlayButton(onOpenArtifacts)} onClick={onOpenArtifacts} title="Artifact Library" className={`flex w-full items-center gap-3 rounded-xl py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c] ${drawerOpen ? 'px-2 justify-start' : 'px-2 justify-center'}`}>
             <div className="flex w-6 items-center justify-center shrink-0">
               <Library size={16} className="text-gray-400" />
             </div>
             {drawerOpen && <span>Artifact Library</span>}
           </button>
-          <button onClick={onOpenGems} title="Gems Registry" className={`flex w-full items-center gap-3 rounded-xl py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c] ${drawerOpen ? 'px-2 justify-start' : 'px-2 justify-center'}`}>
+          <button onPointerDown={activateOverlayButton(onOpenGems)} onClick={onOpenGems} title="Gems Registry" className={`flex w-full items-center gap-3 rounded-xl py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c] ${drawerOpen ? 'px-2 justify-start' : 'px-2 justify-center'}`}>
             <div className="flex w-6 items-center justify-center shrink-0">
               <Diamond size={16} className="text-gray-400" />
             </div>
             {drawerOpen && <span>Gems Registry</span>}
           </button>
-          <button onClick={onOpenSchedule} title="Scheduled Actions" className={`flex w-full items-center gap-3 rounded-xl py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c] ${drawerOpen ? 'px-2 justify-start' : 'px-2 justify-center'}`}>
+          <button onPointerDown={activateOverlayButton(onOpenSchedule)} onClick={onOpenSchedule} title="Scheduled Actions" className={`flex w-full items-center gap-3 rounded-xl py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c] ${drawerOpen ? 'px-2 justify-start' : 'px-2 justify-center'}`}>
             <div className="flex w-6 items-center justify-center shrink-0">
               <Calendar size={16} className="text-gray-400" />
             </div>
             {drawerOpen && <span>Scheduled Actions</span>}
           </button>
-          <button onClick={onOpenPI} title="Personal Intelligence" className={`flex w-full items-center gap-3 rounded-xl py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c] ${drawerOpen ? 'px-2 justify-start' : 'px-2 justify-center'}`}>
+          <button onPointerDown={activateOverlayButton(onOpenPI)} onClick={onOpenPI} title="Personal Intelligence" className={`flex w-full items-center gap-3 rounded-xl py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c] ${drawerOpen ? 'px-2 justify-start' : 'px-2 justify-center'}`}>
             <div className="flex w-6 items-center justify-center shrink-0">
               <Brain size={16} className="text-gray-400" />
             </div>
             {drawerOpen && <span>Personal Intelligence</span>}
           </button>
-          <button onClick={onOpenIntegrations} title="Integrations" className={`flex w-full items-center gap-3 rounded-xl py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c] ${drawerOpen ? 'px-2 justify-start' : 'px-2 justify-center'}`}>
+          <button onPointerDown={activateOverlayButton(onOpenIntegrations)} onClick={onOpenIntegrations} title="Integrations" className={`flex w-full items-center gap-3 rounded-xl py-2.5 text-sm text-gray-700 transition-colors hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-[#2a2b2c] ${drawerOpen ? 'px-2 justify-start' : 'px-2 justify-center'}`}>
             <div className="flex w-6 items-center justify-center shrink-0">
               <LinkIcon size={16} className="text-gray-400" />
             </div>

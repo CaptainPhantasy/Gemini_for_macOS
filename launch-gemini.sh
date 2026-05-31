@@ -320,21 +320,21 @@ sleep 2
 if [ ! -f "$BROWSER_OPENED_FILE" ]; then
     echo -e "${YELLOW}Opening browser...${NC}"
     if [ -n "$CHROME_BETA" ] && [ -f "$CHROME_BETA" ]; then
-        open -a "Chrome Beta" "http://localhost:13000" 2>/dev/null || \
-        "$CHROME_BETA" "http://localhost:13000" 2>/dev/null || \
-        open "http://localhost:13000"
+        open -a "Chrome Beta" "http://localhost:13000/gemini/desktop" 2>/dev/null || \
+        "$CHROME_BETA" "http://localhost:13000/gemini/desktop" 2>/dev/null || \
+        open "http://localhost:13000/gemini/desktop"
     else
-        open "http://localhost:13000"
+        open "http://localhost:13000/gemini/desktop"
     fi
     
     # Mark browser as opened this session
     touch "$BROWSER_OPENED_FILE"
     
     echo ""
-    print_status "Browser" "Opened at http://localhost:13000" "✓"
+    print_status "Browser" "Opened at http://localhost:13000/gemini/desktop" "✓"
     echo ""
 else
-    echo -e "${YELLOW}Browser already opened this session${NC} (services reloading at http://localhost:13000)"
+    echo -e "${YELLOW}Browser already opened this session${NC} (services reloading at http://localhost:13000/gemini/desktop)"
     echo ""
 fi
 
@@ -345,7 +345,7 @@ TERMINAL_PID=$(ps -o ppid= -p $$)
 save_terminal_pid "$TERMINAL_PID"
 
 print_status "Terminal PID tracked" "$TERMINAL_PID" "•"
-print_status "Services running" "MCP: ws://localhost:13001/mcp | Frontend: http://localhost:13000" "•"
+print_status "Services running" "MCP: ws://localhost:13001/mcp | Frontend: http://localhost:13000/gemini/desktop" "•"
 echo ""
 echo -e "${YELLOW}Press Ctrl+C to stop all services and close this window${NC}"
 echo ""

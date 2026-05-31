@@ -3,16 +3,12 @@ import { validatePath, validateCommand } from '../lib/mcp';
 
 describe('pre-flight validation', () => {
   describe('validatePath', () => {
-    test('allows paths within workspace roots', () => {
+    test('does not add hidden workspace roots when Desktop Commander has full filesystem access', () => {
       expect(validatePath('/Volumes/SanDisk1Tb/GEMINI for MacOS/src/App.tsx')).toBeNull();
       expect(validatePath('/Volumes/Storage/projects/test.txt')).toBeNull();
       expect(validatePath('/tmp/some-cache.json')).toBeNull();
-    });
-
-    test('blocks paths outside workspace roots', () => {
-      const result = validatePath('/etc/passwd');
-      expect(result).not.toBeNull();
-      expect(result).toContain('workspace boundaries');
+      expect(validatePath('/Applications')).toBeNull();
+      expect(validatePath('/etc/passwd')).toBeNull();
     });
 
     test('blocks paths that escape above root with ..', () => {
@@ -22,7 +18,6 @@ describe('pre-flight validation', () => {
     });
 
     test('allows relative paths without traversal', () => {
-      // Relative paths don't start with /, so they pass the absolute check
       expect(validatePath('src/App.tsx')).toBeNull();
     });
 
@@ -32,13 +27,8 @@ describe('pre-flight validation', () => {
       expect(validatePath(undefined as any)).toBeNull();
     });
 
-    test('expands tilde to home directory', () => {
-      // Tilde paths are expanded and then checked against allowed roots
-      const result = validatePath('~/Documents/secret.txt');
-      // This should be allowed if HOME is in allowed roots
-      // The exact result depends on process.env.HOME
-      // Just verify it doesn't crash
-      expect(typeof result === 'string' || result === null).toBe(true);
+    test('expands tilde without applying a hidden workspace allow-list', () => {
+      expect(validatePath('~/Documents/secret.txt')).toBeNull();
     });
   });
 

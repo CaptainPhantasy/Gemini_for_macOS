@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { getShellMode, normalizeShellDrawersForMode } from '../lib/shell-mode';
+import { getShellMode, getShellModeForPath, getShellVertical, getShellVerticalForPath, normalizeShellDrawersForMode } from '../lib/shell-mode';
 
 describe('shell mode contract', () => {
   it('maps viewport widths to deterministic shell modes at exact boundaries', () => {
@@ -14,6 +14,24 @@ describe('shell mode contract', () => {
 
     expect(getShellMode(1200)).toBe('expanded');
     expect(getShellMode(1366)).toBe('expanded');
+  });
+
+  it('maps viewport widths to three deterministic verticals', () => {
+    expect(getShellVertical(375)).toBe('mobile');
+    expect(getShellVertical(767)).toBe('mobile');
+    expect(getShellVertical(768)).toBe('tablet');
+    expect(getShellVertical(1199)).toBe('tablet');
+    expect(getShellVertical(1200)).toBe('desktop');
+  });
+
+  it('honors explicit device-vertical route overrides', () => {
+    expect(getShellModeForPath('/gemini/mobile', 1366)).toBe('compact');
+    expect(getShellModeForPath('/gemini/tablet', 1366)).toBe('medium');
+    expect(getShellModeForPath('/gemini/desktop', 375)).toBe('expanded');
+    expect(getShellModeForPath('/gemini/', 1024)).toBe('medium');
+    expect(getShellVerticalForPath('/gemini/mobile', 1366)).toBe('mobile');
+    expect(getShellVerticalForPath('/gemini/tablet', 375)).toBe('tablet');
+    expect(getShellVerticalForPath('/gemini/desktop', 375)).toBe('desktop');
   });
 
   it('treats invalid viewport widths as compact for a safe mobile-first fallback', () => {

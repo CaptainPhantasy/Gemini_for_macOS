@@ -2,7 +2,7 @@
 
 @font-face {
   font-family: "GoogleSans";
-  src: url("/vendor/official-gemini/fonts/GoogleSans-Regular.nohints.ttf") format("truetype");
+  src: url("../vendor/official-gemini/fonts/GoogleSans-Regular.nohints.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -10,7 +10,7 @@
 
 @font-face {
   font-family: "GoogleSans";
-  src: url("/vendor/official-gemini/fonts/GoogleSans-Medium.nohints.ttf") format("truetype");
+  src: url("../vendor/official-gemini/fonts/GoogleSans-Medium.nohints.ttf") format("truetype");
   font-weight: 500;
   font-style: normal;
   font-display: swap;
@@ -18,7 +18,31 @@
 
 @font-face {
   font-family: "GoogleSans";
-  src: url("/vendor/official-gemini/fonts/GoogleSans-Bold.nohints.ttf") format("truetype");
+  src: url("../vendor/official-gemini/fonts/GoogleSans-Bold.nohints.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GoogleSansText";
+  src: url("../vendor/official-gemini/fonts/GoogleSansText-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GoogleSansText";
+  src: url("../vendor/official-gemini/fonts/GoogleSansText-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "GoogleSansText";
+  src: url("../vendor/official-gemini/fonts/GoogleSansText-Bold.ttf") format("truetype");
   font-weight: 700;
   font-style: normal;
   font-display: swap;
@@ -57,7 +81,7 @@ html {
 }
 
 body {
-  font-family: GoogleSans, Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: GoogleSansText, GoogleSans, Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   /* Kill the gray tap flash on every interactive element. */
   -webkit-tap-highlight-color: transparent;
   /* Tell Safari every non-scroll gesture can be treated as a tap — this
@@ -139,6 +163,69 @@ a,
 
 .mobile-sidebar-wrap {
   display: contents;
+}
+
+.shell-compact .main-shell-content {
+  padding-top: calc(max(env(safe-area-inset-top), 0.75rem) + 2.75rem);
+}
+
+.shell-compact .mobile-sidebar-wrap {
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.shell-compact .mobile-sidebar-wrap.open {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.shell-compact .mobile-sidebar-wrap > aside,
+.shell-compact .mobile-sidebar-wrap > div[class*="w-[280px]"],
+.shell-compact .mobile-sidebar-wrap > div {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(86vw, 320px) !important;
+  max-width: 320px;
+  height: 100dvh !important;
+  z-index: 50;
+  transform: translateX(-102%);
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.shell-compact .mobile-sidebar-wrap.open > aside,
+.shell-compact .mobile-sidebar-wrap.open > div[class*="w-[280px]"],
+.shell-compact .mobile-sidebar-wrap.open > div {
+  transform: translateX(0);
+  box-shadow: 0 0 48px rgba(0, 0, 0, 0.7);
+}
+
+.shell-compact .mobile-hamburger {
+  position: fixed;
+  top: max(env(safe-area-inset-top), 0.75rem);
+  left: 0.75rem;
+  z-index: 55;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.875rem;
+  background: rgba(17, 17, 24, 0.75);
+  color: #fff;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.shell-compact .mobile-backdrop {
+  z-index: 45;
 }
 
 .shell-overlay-backdrop {
@@ -319,12 +406,279 @@ a,
   }
 }
 
-/* Hide compact-only UI outside compact mode. */
-@media (min-width: 768px) {
-  .mobile-hamburger,
-  .mobile-backdrop {
-    display: none !important;
-  }
+
+/* =============================================================
+   Three device verticals — phone, tablet, desktop are separate
+   compositions selected by App.tsx from viewport metrics or explicit
+   /gemini/<vertical> routes. These are not one responsive layout scaled down.
+   ============================================================= */
+.vertical-main {
+  flex-direction: column;
+  background:
+    radial-gradient(circle at top left, rgba(66, 133, 244, 0.08), transparent 32rem),
+    radial-gradient(circle at bottom right, rgba(168, 85, 247, 0.08), transparent 30rem);
+}
+
+.vertical-main > .min-h-0.flex-1 {
+  min-height: 0;
+}
+
+.vertical-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid rgba(229, 231, 235, 0.72);
+  background: rgba(255, 255, 255, 0.86);
+  padding: 0.75rem 1rem;
+  backdrop-filter: blur(18px);
+}
+
+.dark .vertical-header {
+  border-bottom-color: rgba(31, 41, 55, 0.9);
+  background: rgba(19, 19, 20, 0.84);
+}
+
+.vertical-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.vertical-header-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+}
+
+.vertical-header-mark > svg {
+  grid-area: 1 / 1;
+  color: #4285f4;
+  filter: drop-shadow(0 0 10px rgba(66, 133, 244, 0.38));
+}
+
+.vertical-header-lottie {
+  grid-area: 1 / 1;
+  width: 2rem;
+  height: 2rem;
+  opacity: 0.78;
+}
+
+.vertical-header-title p {
+  margin: 0;
+  color: #111827;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.dark .vertical-header-title p {
+  color: #f9fafb;
+}
+
+.vertical-header-title span {
+  display: block;
+  color: #6b7280;
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.dark .vertical-header-title span {
+  color: #9ca3af;
+}
+
+.vertical-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.vertical-header-actions button,
+.mobile-action-dock button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 999px;
+  border: 1px solid rgba(209, 213, 219, 0.85);
+  background: rgba(255, 255, 255, 0.82);
+  color: #374151;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.dark .vertical-header-actions button,
+.dark .mobile-action-dock button {
+  border-color: rgba(75, 85, 99, 0.85);
+  background: rgba(31, 41, 55, 0.72);
+  color: #e5e7eb;
+}
+
+.vertical-header-actions button:focus-visible,
+.mobile-action-dock button:focus-visible {
+  outline: 3px solid rgba(66, 133, 244, 0.45);
+  outline-offset: 2px;
+}
+
+.vertical-mobile {
+  background:
+    linear-gradient(180deg, rgba(239, 246, 255, 0.9), rgba(255, 255, 255, 1) 42%),
+    #ffffff;
+}
+
+.dark .vertical-mobile {
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.94), rgba(19, 19, 20, 1) 48%),
+    #131314;
+}
+
+.vertical-header-mobile {
+  margin-left: 3.6rem;
+  min-height: 4rem;
+  border-bottom: 0;
+  border-radius: 0 0 1.5rem 1.5rem;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
+}
+
+.vertical-header-mobile .vertical-header-actions {
+  display: none;
+}
+
+.mobile-action-dock {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  border-top: 1px solid rgba(229, 231, 235, 0.82);
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.5rem max(env(safe-area-inset-right), 0.75rem) max(env(safe-area-inset-bottom), 0.5rem) max(env(safe-area-inset-left), 0.75rem);
+  backdrop-filter: blur(18px);
+}
+
+.dark .mobile-action-dock {
+  border-top-color: rgba(31, 41, 55, 0.9);
+  background: rgba(19, 19, 20, 0.94);
+}
+
+.mobile-action-dock button {
+  flex-direction: column;
+  gap: 0.15rem;
+  border-radius: 1rem;
+  padding: 0.45rem 0.25rem;
+}
+
+.shell-medium {
+  background:
+    linear-gradient(135deg, rgba(240, 249, 255, 0.92), rgba(250, 245, 255, 0.92)),
+    #ffffff;
+}
+
+.dark .shell-medium {
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 27, 75, 0.72)),
+    #131314;
+}
+
+.vertical-header-tablet {
+  min-height: 4.5rem;
+  border-left: 1px solid rgba(229, 231, 235, 0.72);
+  border-radius: 0 0 0 1.25rem;
+}
+
+.vertical-header-tablet .vertical-header-actions button {
+  border-radius: 0.9rem;
+}
+
+.vertical-desktop {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(66, 133, 244, 0.10), transparent 24rem),
+    radial-gradient(circle at 90% 10%, rgba(16, 185, 129, 0.08), transparent 24rem),
+    #ffffff;
+}
+
+.dark .vertical-desktop {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(66, 133, 244, 0.16), transparent 24rem),
+    radial-gradient(circle at 90% 10%, rgba(16, 185, 129, 0.10), transparent 24rem),
+    #131314;
+}
+
+.vertical-header-desktop {
+  min-height: 3.75rem;
+  border-bottom-style: dashed;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.92), rgba(239, 246, 255, 0.78));
+}
+
+.dark .vertical-header-desktop {
+  background:
+    linear-gradient(90deg, rgba(19, 19, 20, 0.90), rgba(30, 41, 59, 0.78));
+}
+
+.vertical-header-desktop .vertical-header-actions button {
+  border-radius: 0.75rem;
+}
+
+.official-gemini-gel {
+  position: fixed;
+  z-index: 0;
+  width: clamp(7rem, 16vw, 14rem);
+  aspect-ratio: 412 / 456;
+  object-fit: contain;
+  pointer-events: none;
+  opacity: 0.16;
+  filter: saturate(1.18) blur(0.1px);
+  mix-blend-mode: screen;
+}
+
+.vertical-mobile .official-gemini-gel {
+  right: -2.5rem;
+  top: max(env(safe-area-inset-top), 0.5rem);
+  width: clamp(5.5rem, 30vw, 8rem);
+  opacity: 0.12;
+}
+
+.vertical-tablet .official-gemini-gel {
+  right: 1.25rem;
+  bottom: 1.25rem;
+  width: clamp(8rem, 18vw, 12rem);
+}
+
+.vertical-desktop .official-gemini-gel {
+  right: calc(56px + 1.5rem);
+  top: 4.5rem;
+}
+
+.official-thinking {
+  position: relative;
+  border: 1px solid rgba(168, 85, 247, 0.16);
+  background:
+    linear-gradient(135deg, rgba(66, 133, 244, 0.08), rgba(168, 85, 247, 0.08)),
+    transparent;
+}
+
+.official-thinking-spinner {
+  width: 1.6rem;
+  height: 1.6rem;
+  flex: 0 0 auto;
+}
+
+.official-thinking-spark {
+  position: absolute;
+  left: 1.05rem;
+  top: 0.45rem;
+  width: 1rem;
+  height: 1rem;
+  opacity: 0.82;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -334,6 +688,10 @@ a,
   .tablet-canvas-sheet {
     transition-duration: 1ms !important;
     animation-duration: 1ms !important;
+  }
+
+  .official-gemini-gel {
+    display: none;
   }
 }
 

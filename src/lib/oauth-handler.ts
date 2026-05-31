@@ -35,6 +35,7 @@ export const GOOGLE_DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.fi
 export const GOOGLE_DRIVE_READ_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 export const GOOGLE_DOCS_SCOPE = 'https://www.googleapis.com/auth/documents';
 export const GOOGLE_CALENDAR_READ_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+export const GOOGLE_GMAIL_READ_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 export const GOOGLE_BILLING_READ_SCOPE = 'https://www.googleapis.com/auth/cloud-billing.readonly';
 
 export const GOOGLE_WORKSPACE_SCOPES = [
@@ -42,6 +43,7 @@ export const GOOGLE_WORKSPACE_SCOPES = [
   GOOGLE_DRIVE_READ_SCOPE,
   GOOGLE_DOCS_SCOPE,
   GOOGLE_CALENDAR_READ_SCOPE,
+  GOOGLE_GMAIL_READ_SCOPE,
   GOOGLE_BILLING_READ_SCOPE,
 ] as const;
 
@@ -606,35 +608,26 @@ async function initiateOAuth(config: OAuthConfig): Promise<TokenSet> {
       }
 
     try {
-     console.log("[OAuth] Starting token exchange for code of length:", data.code.length);
-     const tokens = await exchangeCodeForTokens(data.code, verifier, config);
-     const pickedFileIds = Array.isArray(data.pickedFileIds)
-       ? data.pickedFileIds
-       : typeof data.picked_file_ids === 'string'
-         ? data.picked_file_ids.split(',').map((id) => id.trim()).filter(Boolean)
-         : [];
-     if (pickedFileIds.length > 0) tokens.pickedFileIds = pickedFileIds;
-     console.log("[OAuth] Token exchange complete. Got tokens:", {
-      hasAccessToken: !!tokens.accessToken,
-      hasRefreshToken: !!tokens.refreshToken,
-      expiresAt: tokens.expiresAt,
-      accessTokenLength: tokens.accessToken?.length,
-     });
-     console.log("[OAuth] About to call persistTokenSet...");
-     await persistTokenSet(tokens, config.scopes);
-     console.log("[OAuth] persistTokenSet completed successfully");
-     cleanup();
-     try {
-      popup.close();
-     } catch {
-      // ignore cross-origin close failures
-     }
-     console.log("[OAuth] Resolving promise with tokens");
-     resolve(tokens);
+      const tokens = await exchangeCodeForTokens(data.code, verifier, config);
+      const pickedFileIds = Array.isArray(data.pickedFileIds)
+        ? data.pickedFileIds
+        : typeof data.picked_file_ids === 'string'
+          ? data.picked_file_ids.split(',').map((id) => id.trim()).filter(Boolean)
+          : [];
+      if (pickedFileIds.length > 0) tokens.pickedFileIds = pickedFileIds;
+
+      await persistTokenSet(tokens, config.scopes);
+      cleanup();
+      try {
+        popup.close();
+      } catch {
+        // ignore cross-origin close failures
+      }
+      resolve(tokens);
     } catch (error) {
-     console.error("[OAuth] Flow failed with error:", error);
-     cleanup();
-     reject(error instanceof Error ? error : new Error(String(error)));
+      console.error('[OAuth] Flow failed with error:', error);
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
     }
     };
   });

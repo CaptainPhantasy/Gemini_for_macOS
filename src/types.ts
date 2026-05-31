@@ -55,7 +55,7 @@ export type Artifact = {
     sizeBytes?: number;
     estimatedCostUsd?: number;
     sourceFileId?: string;
-    sourceType?: 'drive' | 'docs' | 'calendar';
+    sourceType?: 'drive' | 'docs' | 'calendar' | 'gmail';
     fetchedAt?: number;
   };
 };
@@ -70,7 +70,7 @@ export type AutonomyMode = 'safe' | 'ask' | 'auto-accept' | 'yolo';
 export type McpServerConfig = {
   id: string;
   name: string;
-  type: 'stdio' | 'websocket' | 'sse';
+  type: 'stdio' | 'websocket' | 'sse' | 'http';
   command?: string;
   args?: string[];
   url?: string;
