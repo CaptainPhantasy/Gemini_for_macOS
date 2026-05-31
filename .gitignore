@@ -12,6 +12,28 @@ coverage/
 .env.*
 !.env.example
 
+# Secret-bearing documents and local auth/config exports
+**/*secret*.md
+**/*secret*.txt
+**/*secret*.json
+**/*secret*.yaml
+**/*secret*.yml
+**/*secret*.pdf
+**/*credential*.md
+**/*credential*.txt
+**/*credential*.json
+**/*credential*.yaml
+**/*credential*.yml
+**/*credential*.pdf
+**/*token*.md
+**/*token*.txt
+**/*token*.json
+**/*token*.yaml
+**/*token*.yml
+**/*token*.pdf
+*.local.json
+.claude/settings.local.json
+
 # Backup files may contain API keys from settings exports
 gemini-backup-*.json
 *-backup-*.json
@@ -26,6 +48,8 @@ oauth-tokens.json
 # ─── Local-only artifacts ────────────────────────────────
 docs/quarantine/
 docs/screenshots/
+docs/dogfood/
+dogfood-output/
 .local-backup/
 test-results.json
 test-report.txt
@@ -79,6 +103,8 @@ tmp/
 CLAUDE.md
 docs/architecture/environment_profile.md
 docs/architecture/site-comparison.md
+docs/issues/
+docs/ssot/
 docs/dogfood/
 # Deploy/infra config (Caddy/Tailserve reverse-proxy topology + node names)
 ops/
