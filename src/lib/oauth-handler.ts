@@ -39,7 +39,6 @@ export const GOOGLE_SLIDES_SCOPE = 'https://www.googleapis.com/auth/presentation
 export const GOOGLE_FORMS_SCOPE = 'https://www.googleapis.com/auth/forms';
 export const GOOGLE_TASKS_READ_SCOPE = 'https://www.googleapis.com/auth/tasks.readonly';
 export const GOOGLE_TASKS_SCOPE = 'https://www.googleapis.com/auth/tasks';
-export const GOOGLE_KEEP_SCOPE = 'https://www.googleapis.com/auth/keep';
 export const GOOGLE_CALENDAR_READ_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
 export const GOOGLE_GMAIL_READ_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 export const GOOGLE_BILLING_READ_SCOPE = 'https://www.googleapis.com/auth/cloud-billing.readonly';

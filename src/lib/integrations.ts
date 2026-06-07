@@ -15,7 +15,7 @@ export interface ImportResult {
   content?: string; // text content OR data URI for binary
   mimeType?: string;
   sourceFileId?: string;
-  sourceType?: 'drive' | 'docs' | 'calendar' | 'gmail' | 'tasks' | 'keep' | 'sheets' | 'slides' | 'forms' | 'sites' | 'cloudsearch';
+  sourceType?: 'drive' | 'docs' | 'calendar' | 'gmail' | 'tasks' | 'sheets' | 'slides' | 'forms';
   fetchedAt?: number;
   error?: string;
 }
@@ -56,11 +56,6 @@ export interface TasksTaskSummary {
   due?: string;
   updated?: string;
 }
-export interface KeepNoteSummary {
-  name: string;
-  title: string;
-  updated?: string;
-}
 export interface SheetSummary {
   spreadsheetId: string;
   title: string;
@@ -87,9 +82,6 @@ const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 const DOCS_API = 'https://docs.googleapis.com/v1';
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 const TASKS_API = 'https://tasks.googleapis.com/tasks/v1';
-const KEEP_API = 'https://keep.googleapis.com/v1';
-const SITES_API = 'https://sites.googleapis.com/v1';
-const CLOUD_SEARCH_API = 'https://cloudsearch.googleapis.com/v1';
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const SLIDES_API = 'https://slides.googleapis.com/v1/presentations';
@@ -971,83 +963,6 @@ export const integrations = {
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
       }
-    },
-    async listKeepNotes(accessToken: string): Promise<KeepNoteSummary[]> {
-      try {
-        const response = await fetchWithRetry(`${KEEP_API}/notes?pageSize=50`, {
-          method: 'GET',
-          headers: authHeaders(accessToken),
-        });
-        if (!response.ok) {
-          const body = await response.text();
-          console.error('[integrations] Keep list failed:', response.status, body);
-          return [];
-        }
-        const data = await response.json() as { notes?: Array<{ name?: string; title?: string; updated?: string }> };
-        const notes = data.notes ?? [];
-        const result: KeepNoteSummary[] = [];
-        for (const n of notes) {
-          if (n.name && n.title) {
-            result.push({ name: n.name, title: n.title, ...(n.updated ? { updated: n.updated } : {}) });
-          }
-        }
-        return result;
-      } catch (error) {
-        console.error('[integrations] Keep list error:', errorMessage(error));
-        return [];
-      }
-    },
-    async importKeepNote(accessToken: string, noteName: string): Promise<ImportResult> {
-      try {
-        const response = await fetchWithRetry(`${KEEP_API}/notes/${encodeURIComponent(noteName)}`, {
-          method: 'GET',
-          headers: authHeaders(accessToken),
-        });
-        if (!response.ok) {
-          const body = await response.text();
-          return { ok: false, error: `Keep note fetch failed: ${response.status} ${body}` };
-        }
-        const data = await response.json() as { title?: string; textContent?: string; listContent?: Array<{ text?: string; checked?: boolean }> };
-        const lines = [`# ${data.title ?? 'Keep Note'}\n`];
-        if (data.textContent) {
-          lines.push(data.textContent);
-        }
-        for (const item of (data.listContent ?? [])) {
-          const check = item.checked ? '[x]' : '[ ]';
-          lines.push(`- ${check} ${item.text ?? ''}`);
-        }
-        return {
-          ok: true,
-          artifactId: generateId(),
-          title: data.title ?? 'Keep Note',
-          content: lines.join('\n'),
-          mimeType: 'text/markdown',
-          sourceFileId: noteName,
-          sourceType: 'keep',
-          fetchedAt: Date.now(),
-        };
-      } catch (error) {
-        return { ok: false, error: errorMessage(error) };
-      }
-    },
-  },
-  // Google Travel placeholder — Google Flights API requires partner access.
-  // Viable alternatives: Google Maps Routes API, SerpAPI, or Amadeus API.
-  travel: {
-    async searchFlights(
-      accessToken: string,
-      origin: string,
-      dest: string,
-      date: string
-    ): Promise<{ ok: false; error: string }> {
-      void accessToken;
-      void origin;
-      void dest;
-      void date;
-      return {
-        ok: false,
-        error: 'Flight search is not implemented. Google does not expose a public Flights API.',
-      };
     },
   },
 };

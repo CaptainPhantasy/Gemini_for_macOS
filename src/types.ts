@@ -55,7 +55,7 @@ export type Artifact = {
     sizeBytes?: number;
     estimatedCostUsd?: number;
     sourceFileId?: string;
-    sourceType?: 'drive' | 'docs' | 'calendar' | 'gmail' | 'tasks' | 'keep' | 'sheets' | 'slides' | 'forms' | 'sites' | 'cloudsearch';
+    sourceType?: 'drive' | 'docs' | 'calendar' | 'gmail' | 'tasks' | 'sheets' | 'slides' | 'forms';
     fetchedAt?: number;
   };
 };

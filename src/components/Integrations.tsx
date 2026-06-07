@@ -6,18 +6,15 @@ import {
   Calendar,
   BookOpen,
   Mail,
-  Plane,
+  StickyNote,
   Loader2,
   CheckCircle2,
   AlertTriangle,
   FolderOpen,
   ExternalLink,
   ListChecks,
-  StickyNote,
   Table,
   ClipboardList,
-  Globe,
-  Search,
 } from 'lucide-react';
 import {
   calendarEventsToMarkdown,
@@ -27,7 +24,6 @@ import {
   type GmailMessageSummary,
   type ImportResult,
   type TasksTaskSummary,
-  type KeepNoteSummary,
   type SheetSummary,
   type SlideSummary,
   type FormSummary,
@@ -50,7 +46,7 @@ interface IntegrationsProps {
   activeThread?: Thread | null;
 }
 
-type ServiceKey = 'drive' | 'docs' | 'calendar' | 'gmail' | 'tasks' | 'keep' | 'sheets' | 'slides' | 'forms' | 'sites' | 'cloudsearch';
+type ServiceKey = 'drive' | 'docs' | 'calendar' | 'gmail' | 'tasks' | 'sheets' | 'slides' | 'forms';
 interface ConnectionState {
   connected: boolean;
   connectedAt?: number;
@@ -68,12 +64,9 @@ function defaultConnections(): Record<ServiceKey, ConnectionState> {
     calendar: { connected: false },
     gmail: { connected: false },
     tasks: { connected: false },
-    keep: { connected: false },
     sheets: { connected: false },
     slides: { connected: false },
     forms: { connected: false },
-    sites: { connected: false },
-    cloudsearch: { connected: false },
   };
 }
 
@@ -150,7 +143,6 @@ export function Integrations({
   const [sheetsItems, setSheetsItems] = useState<SheetSummary[] | null>(null);
   const [slidesItems, setSlidesItems] = useState<SlideSummary[] | null>(null);
   const [formsItems, setFormsItems] = useState<FormSummary[] | null>(null);
-  const [keepNotes, setKeepNotes] = useState<KeepNoteSummary[] | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [notebookLmDriveFileId, setNotebookLmDriveFileId] = useState<string | null>(null);
 
@@ -173,12 +165,9 @@ export function Integrations({
             calendar: { connected: true, connectedAt: Date.now() },
             gmail: { connected: true, connectedAt: Date.now() },
             tasks: { connected: true, connectedAt: Date.now() },
-            keep: { connected: true, connectedAt: Date.now() },
             sheets: { connected: true, connectedAt: Date.now() },
             slides: { connected: true, connectedAt: Date.now() },
             forms: { connected: true, connectedAt: Date.now() },
-            sites: { connected: true, connectedAt: Date.now() },
-            cloudsearch: { connected: true, connectedAt: Date.now() },
           });
         }
       } catch {
@@ -218,12 +207,9 @@ export function Integrations({
       calendar: { connected: true, connectedAt: Date.now() },
       gmail: { connected: true, connectedAt: Date.now() },
       tasks: { connected: true, connectedAt: Date.now() },
-      keep: { connected: true, connectedAt: Date.now() },
       sheets: { connected: true, connectedAt: Date.now() },
       slides: { connected: true, connectedAt: Date.now() },
       forms: { connected: true, connectedAt: Date.now() },
-      sites: { connected: true, connectedAt: Date.now() },
-      cloudsearch: { connected: true, connectedAt: Date.now() },
     });
   };
 
@@ -587,43 +573,6 @@ export function Integrations({
       setBusy(null);
     }
   };
-  const handleListKeepNotes = async (): Promise<void> => {
-    const clientId = requireClientId();
-    if (!clientId) return;
-    setBusy('keep:list');
-    try {
-      const token = await getToken(clientId);
-      if (!token) return;
-      const items = await integrations.googleWorkspace.listKeepNotes(token);
-      setKeepNotes(items);
-      setConnections((prev) => ({ ...prev, keep: { connected: true, connectedAt: Date.now() } }));
-      if (items.length === 0) showBanner({ kind: 'success', message: 'No Keep notes found.' });
-    } catch (error) {
-      showBanner({ kind: 'error', message: `Keep list failed: ${errorMessage(error)}` });
-    } finally {
-      setBusy(null);
-    }
-  };
-  const handleImportKeepNote = async (noteName: string, fallbackTitle: string): Promise<void> => {
-    const clientId = requireClientId();
-    if (!clientId) return;
-    setBusy(`keep:import:${noteName}`);
-    try {
-      const token = await getToken(clientId);
-      if (!token) return;
-      const result = await integrations.googleWorkspace.importKeepNote(token, noteName);
-      if (!result.ok || !result.content) {
-        showBanner({ kind: 'error', message: result.error ?? 'Keep import failed' });
-        return;
-      }
-      const artifact = await persistAsArtifact(result, fallbackTitle);
-      if (artifact) showBanner({ kind: 'success', message: `Imported as artifact: ${artifact.title}` });
-    } catch (error) {
-      showBanner({ kind: 'error', message: `Keep import failed: ${errorMessage(error)}` });
-    } finally {
-      setBusy(null);
-    }
-  };
   const uploadNotebookLmPack = async (packTitle: string, packArtifacts: Artifact[], thread?: Thread | null): Promise<void> => {
     const clientId = requireClientId();
     if (!clientId) return;
@@ -917,35 +866,6 @@ export function Integrations({
                   </ul>
                 ) : null}
               </section>
-              <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
-                <header className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <ListChecks size={18} className="text-yellow-600" />
-                    <h3 className="font-semibold text-gray-900 dark:text-white">Google Keep</h3>
-                  </div>
-                  <span className="text-xs text-gray-500">{connections.keep.connected ? 'Connected' : 'Not connected'}</span>
-                </header>
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => handleConnect('keep')} disabled={busy !== null} className="rounded-lg bg-yellow-600 px-3 py-1.5 text-sm text-white hover:bg-yellow-700 disabled:opacity-50">
-                    {busy === 'connect:keep' ? <Loader2 className="animate-spin" size={14} /> : 'Connect'}
-                  </button>
-                  <button onClick={handleListKeepNotes} disabled={busy !== null} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
-                    {busy === 'keep:list' ? 'Loading...' : 'List notes'}
-                  </button>
-                </div>
-                {keepNotes && keepNotes.length > 0 ? (
-                  <ul className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
-                    {keepNotes.map((note) => (
-                      <li key={note.name} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-                        <span className="truncate text-gray-800 dark:text-gray-100">{note.title}</span>
-                        <button onClick={() => handleImportKeepNote(note.name, note.title)} disabled={busy !== null} className="shrink-0 rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
-                          Import
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </section>
               {notebookLmEnabled !== false && (
                 <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
                   <header className="flex items-center justify-between mb-3">
@@ -995,36 +915,6 @@ export function Integrations({
                 </section>
               )}
 
-              <section className="rounded-xl border border-dashed border-gray-200 dark:border-gray-800 p-4 opacity-70">
-                <header className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Globe size={18} className="text-gray-500" />
-                    <h3 className="font-semibold text-gray-700 dark:text-gray-300">Google Sites</h3>
-                  </div>
-                  <span className="text-xs text-gray-500">(Coming soon)</span>
-                </header>
-                <p className="mt-2 text-xs text-gray-500">Browse and import content from Google Sites. Requires Sites API enablement.</p>
-              </section>
-              <section className="rounded-xl border border-dashed border-gray-200 dark:border-gray-800 p-4 opacity-70">
-                <header className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Search size={18} className="text-gray-500" />
-                    <h3 className="font-semibold text-gray-700 dark:text-gray-300">Cloud Search</h3>
-                  </div>
-                  <span className="text-xs text-gray-500">(Coming soon)</span>
-                </header>
-                <p className="mt-2 text-xs text-gray-500">Search across your Google Workspace data. Requires Cloud Search API enablement.</p>
-              </section>
-              <section className="rounded-xl border border-dashed border-gray-200 dark:border-gray-800 p-4 opacity-70">
-                <header className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Plane size={18} className="text-gray-500" />
-                    <h3 className="font-semibold text-gray-700 dark:text-gray-300">Travel</h3>
-                  </div>
-                  <span className="text-xs text-gray-500">(Not available)</span>
-                </header>
-                <p className="mt-2 text-xs text-gray-500">Google Flights does not expose a public developer API. Alternatives: Google Maps Routes API, SerpAPI, or Amadeus.</p>
-              </section>
             </>
           )}
         </div>
