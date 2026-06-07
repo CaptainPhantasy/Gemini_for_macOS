@@ -25,7 +25,6 @@ describe('oauth-handler scope partitioning', () => {
       'https://www.googleapis.com/auth/forms',
       'https://www.googleapis.com/auth/tasks.readonly',
       'https://www.googleapis.com/auth/tasks',
-      'https://www.googleapis.com/auth/keep',
       'https://www.googleapis.com/auth/calendar.readonly',
       'https://www.googleapis.com/auth/gmail.readonly',
       'https://www.googleapis.com/auth/cloud-billing.readonly',
