@@ -65,6 +65,8 @@ export interface OAuthConfig {
   scopes: string[];
   /** Extra OAuth authorization URL params, e.g. trigger_onepick=true for Drive Picker. */
   extraAuthorizeParams?: Record<string, string>;
+  /** OAuth client secret. Google requires it for "Web application" client types during the code/refresh exchange. Optional for Desktop/PKCE clients. */
+  clientSecret?: string;
 }
 
 export interface TokenSet {
@@ -493,6 +495,7 @@ async function exchangeCodeForTokens(
     client_id: config.clientId,
     redirect_uri: config.redirectUri,
   });
+  if (config.clientSecret) body.set('client_secret', config.clientSecret);
   const response = await postTokenEndpoint(body);
   return tokenResponseToSet(response);
 }
@@ -506,6 +509,7 @@ async function refreshAccessToken(tokens: TokenSet, config: OAuthConfig): Promis
     refresh_token: tokens.refreshToken,
     client_id: config.clientId,
   });
+  if (config.clientSecret) body.set('client_secret', config.clientSecret);
   const response = await postTokenEndpoint(body);
   return tokenResponseToSet(response, tokens.refreshToken);
 }
@@ -561,6 +565,7 @@ async function initiateOAuth(config: OAuthConfig): Promise<TokenSet> {
   return await new Promise<TokenSet>((resolve, reject) => {
     const channel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
     let settled = false;
+    let codeReceived = false;
 
     const cleanup = () => {
       settled = true;
@@ -578,7 +583,7 @@ async function initiateOAuth(config: OAuthConfig): Promise<TokenSet> {
 
     const popupWatcher = setInterval(() => {
       if (settled) return;
-      if (popup.closed) {
+      if (popup.closed && !codeReceived) {
         cleanup();
         reject(new Error('OAuth: popup was closed before authorization completed.'));
       }
@@ -596,6 +601,7 @@ async function initiateOAuth(config: OAuthConfig): Promise<TokenSet> {
       }
 
       if (!data.code) return;
+      codeReceived = true;
 
       // Validate state if provided, but do not reject silent mismatches that
       // predate state support in the callback page.

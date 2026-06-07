@@ -22,7 +22,7 @@ import {
   type ImportResult,
 } from '../lib/integrations';
 import { oauthHandler, GOOGLE_WORKSPACE_SCOPES, type OAuthConfig } from '../lib/oauth-handler';
-import { buildDrivePickerOAuthConfig, importPickedDriveFiles } from '../lib/google-picker';
+import { showGoogleDrivePicker, importPickedDriveFiles } from '../lib/google-picker';
 import {
   buildNotebookLmSourcePack,
   NOTEBOOKLM_HANDOFF_URL,
@@ -51,7 +51,7 @@ interface BannerState {
   message: string;
 }
 
-const REDIRECT_URI = 'http://localhost:13000/oauth/callback';
+const REDIRECT_URI = `${window.location.origin}/gemini/oauth/callback.html`;
 const LS_CONNECTIONS_KEY = 'gemini-for-macos:integrations:connections';
 function defaultConnections(): Record<ServiceKey, ConnectionState> {
   return {
@@ -94,10 +94,12 @@ function generateArtifactId(): string {
 }
 
 function buildOAuthConfig(clientId: string): OAuthConfig {
+  const clientSecret = storage.getSettings().gcpOAuthClientSecret;
   return {
     clientId,
     redirectUri: REDIRECT_URI,
     scopes: [...GOOGLE_WORKSPACE_SCOPES],
+    ...(clientSecret ? { clientSecret } : {}),
   };
 }
 
@@ -276,42 +278,33 @@ export function Integrations({
     if (!clientId) return;
     setBusy('drive:picker');
     try {
-      const pickerConfig = buildDrivePickerOAuthConfig({
-        clientId,
-        redirectUri: REDIRECT_URI,
+      const token = await getToken(clientId);
+      if (!token) return;
+      const picked = await showGoogleDrivePicker({
+        accessToken: token,
+        developerKey: storage.getSettings().geminiApiKey || undefined,
+        appId: clientId.split('-')[0],
         allowMultiple: true,
       });
-      const pickerTokens = await oauthHandler.initiateOAuth(pickerConfig);
-      const pickedFileIds = pickerTokens.pickedFileIds ?? [];
-      if (pickedFileIds.length === 0) {
-        showBanner({ kind: 'error', message: 'Drive Picker returned no selected file IDs.' });
+      if (picked.length === 0) {
+        showBanner({ kind: 'error', message: 'No files selected from Drive.' });
         return;
       }
-
+      const pickedNames = new Map(picked.map((file) => [file.id, file.name] as const));
       const results = await importPickedDriveFiles({
-        accessToken: pickerTokens.accessToken,
-        fileIds: pickedFileIds,
+        accessToken: token,
+        fileIds: picked.map((file) => file.id),
         importFile: integrations.googleWorkspace.importFile,
       });
-
-      const maxPersistenceConcurrency = 3;
       let imported = 0;
-      let nextPersistIndex = 0;
-      const persistWorker = async () => {
-        while (nextPersistIndex < results.length) {
-          const resultIndex = nextPersistIndex++;
-          const result = results[resultIndex];
-          if (result.ok && result.content) {
-            const artifact = await persistAsArtifact(result, result.title ?? 'Picked Drive file');
-            if (artifact) imported += 1;
-          }
-        }
-      };
-
-      await Promise.all(Array.from({ length: Math.max(1, Math.min(maxPersistenceConcurrency, results.length)) }, () => persistWorker()));
-
+      for (const result of results) {
+        if (!result.ok || !result.content) continue;
+        const fallback = pickedNames.get(result.sourceFileId ?? '') ?? result.title ?? 'Picked Drive file';
+        const artifact = await persistAsArtifact(result, fallback);
+        if (artifact) imported += 1;
+      }
       setConnections((prev) => ({ ...prev, drive: { connected: true, connectedAt: Date.now() } }));
-      showBanner({ kind: imported > 0 ? 'success' : 'error', message: `Drive Picker imported ${imported}/${results.length} file(s).` });
+      showBanner({ kind: imported > 0 ? 'success' : 'error', message: `Imported ${imported}/${results.length} file(s) from Drive.` });
     } catch (error) {
       showBanner({ kind: 'error', message: `Drive Picker failed: ${errorMessage(error)}` });
     } finally {

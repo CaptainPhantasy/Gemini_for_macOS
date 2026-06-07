@@ -1,26 +1,27 @@
 import { describe, expect, test } from 'vitest';
-import { GOOGLE_DRIVE_FILE_SCOPE } from '../lib/oauth-handler';
-import { buildDrivePickerOAuthConfig, importPickedDriveFiles } from '../lib/google-picker';
+import { extractPickedFiles, importPickedDriveFiles } from '../lib/google-picker';
 
 describe('Google Drive Picker flow', () => {
-  test('builds a Picker-only OAuth config using drive.file', () => {
-    const config = buildDrivePickerOAuthConfig({
-      clientId: 'client-123',
-      redirectUri: 'http://localhost:13000/oauth/callback',
-      allowMultiple: true,
-      mimeTypes: ['application/pdf', 'application/vnd.google-apps.document'],
+  test('extractPickedFiles maps picker docs to id+name and skips blank ids', () => {
+    const files = extractPickedFiles({
+      action: 'picked',
+      docs: [
+        { id: 'file-1', name: 'Q2 Plan' },
+        { id: '  ', name: 'blank id' },
+        { id: 'file-2' },
+      ],
     });
+    expect(files).toEqual([
+      { id: 'file-1', name: 'Q2 Plan' },
+      { id: 'file-2', name: 'file-2' },
+    ]);
+  });
 
-    expect(config.clientId).toBe('client-123');
-    expect(config.redirectUri).toBe('http://localhost:13000/oauth/callback');
-    expect(config.scopes).toEqual([GOOGLE_DRIVE_FILE_SCOPE]);
-    expect(config.extraAuthorizeParams).toEqual({
-      trigger_onepick: 'true',
-      prompt: 'consent',
-      include_granted_scopes: 'false',
-      allow_multiple: 'true',
-      mimetypes: 'application/pdf,application/vnd.google-apps.document',
-    });
+  test('extractPickedFiles returns [] for cancel / empty payloads', () => {
+    expect(extractPickedFiles({ action: 'cancel' })).toEqual([]);
+    expect(extractPickedFiles(null)).toEqual([]);
+    expect(extractPickedFiles(undefined)).toEqual([]);
+    expect(extractPickedFiles({})).toEqual([]);
   });
 
   test('imports picked files exactly once in selected order', async () => {

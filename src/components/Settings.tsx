@@ -56,6 +56,7 @@ function parentDirectory(path: string): string {
 export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps) {
   const [apiKeyDraft, setApiKeyDraft] = useState(settings.geminiApiKey || '');
   const [clientIdDraft, setClientIdDraft] = useState(settings.gcpOAuthClientId || '');
+  const [clientSecretDraft, setClientSecretDraft] = useState(settings.gcpOAuthClientSecret || '');
   const [apiSaved, setApiSaved] = useState(false);
   const [modelRefreshing, setModelRefreshing] = useState(false);
   const [modelRefreshStatus, setModelRefreshStatus] = useState<string | null>(null);
@@ -64,7 +65,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
   const [modelApplyStatus, setModelApplyStatus] = useState<string | null>(null);
 
   const handleSaveApiConfig = () => {
-    onUpdateSettings({ ...settings, geminiApiKey: apiKeyDraft, gcpOAuthClientId: clientIdDraft });
+    onUpdateSettings({ ...settings, geminiApiKey: apiKeyDraft, gcpOAuthClientId: clientIdDraft, gcpOAuthClientSecret: clientSecretDraft });
     setApiSaved(true);
     setTimeout(() => setApiSaved(false), 2000);
   };
@@ -379,6 +380,18 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
                   className="w-full px-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-100 dark:border-gray-800 rounded-lg text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">Required for Google Drive integration. Create one at console.cloud.google.com/apis/credentials.</p>
+              </div>
+              <div>
+                <label htmlFor="settings-google-oauth-client-secret" className="block text-xs font-medium text-gray-500 mb-2">Google OAuth Client Secret</label>
+                <input
+                  id="settings-google-oauth-client-secret"
+                  type="password"
+                  value={clientSecretDraft}
+                  onChange={(e) => { setClientSecretDraft(e.target.value); setApiSaved(false); }}
+                  placeholder="GOCSPX-..."
+                  className="w-full px-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-100 dark:border-gray-800 rounded-lg text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">Required for "Web application" OAuth clients — Google needs it for the token exchange. Find it on the client in console.cloud.google.com/apis/credentials. Leave blank if you use a Desktop-app client (PKCE, no secret).</p>
               </div>
               <button
                 onClick={handleSaveApiConfig}

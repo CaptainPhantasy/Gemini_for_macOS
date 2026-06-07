@@ -19,7 +19,11 @@ function startEchoServer(): ChildProcessWithoutNullStreams {
   children.push(child);
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (data) => {
-    throw new Error(`echo server stderr: ${data}`);
+    const text = String(data);
+    // Ignore benign Node runtime notices (e.g. tsx's module.register() DeprecationWarning,
+    // ExperimentalWarning) written to stderr; they are not echo-server errors.
+    if (/\(node:\d+\)/.test(text) || /(Deprecation|Experimental)Warning/.test(text)) return;
+    throw new Error(`echo server stderr: ${text}`);
   });
   return child;
 }

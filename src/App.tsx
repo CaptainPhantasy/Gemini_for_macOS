@@ -23,6 +23,7 @@ import {
 } from './lib/agent-tools';
 import { shouldAutoApproveToolCall, type ToolAction } from './lib/autonomy';
 import { autoSyncArtifact } from './lib/drive-sync';
+import { buildImportedWorkspaceContext } from './lib/workspace-context';
 import { v4 as uuidv4 } from 'uuid';
 import { getAI } from './lib/api-config';
 import { SplashScreen } from './components/SplashScreen';
@@ -198,8 +199,21 @@ export default function App() {
     openPanel(panel);
   };
 
-  const theme = settings.theme === 'system' 
-    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+
+  // Listen for OS-level theme changes when theme is set to 'system'.
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
+
+  useEffect(() => {
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
+
+  const theme = settings.theme === 'system'
+    ? (systemDark ? 'dark' : 'light')
     : settings.theme;
 
   // MCP Permission State
@@ -586,7 +600,8 @@ export default function App() {
         `restore prior context, and write_file to update it with durable facts. ` +
         `Never store secrets there. See .gemini-memory/README.md for layout.`;
       const directoryLockNotice = buildDirectoryLockPrompt(settings.directoryLock);
-      const systemInstruction = [activeGem?.systemInstruction, toolPrompt, directoryLockNotice, memoryNotice, userPrefs]
+      const importedWorkspaceContext = buildImportedWorkspaceContext(storage.getArtifacts());
+      const systemInstruction = [activeGem?.systemInstruction, toolPrompt, directoryLockNotice, memoryNotice, importedWorkspaceContext, userPrefs]
         .filter(Boolean)
         .join('\n\n');
 

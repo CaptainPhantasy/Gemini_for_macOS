@@ -152,6 +152,7 @@ export type AppSettings = {
   mcpServers: McpServerConfig[];
   geminiApiKey: string;
   gcpOAuthClientId: string;
+  gcpOAuthClientSecret?: string;
   autoSyncArtifacts: boolean;
   models?: ModelSettings;
   availableModelCatalog?: AvailableModelCatalog;

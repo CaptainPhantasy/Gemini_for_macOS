@@ -19,7 +19,29 @@ export default defineConfig(({mode}) => {
 
   return {
     base: '/gemini/',
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      // Serve the OAuth callback at /gemini/oauth/callback.html (Google OAuth PKCE redirect target).
+      {
+        name: 'oauth-callback-rewrite',
+        configureServer(server) {
+          server.middlewares.use('/gemini/oauth/callback.html', (_req, res, next) => {
+            try {
+              const htmlPath = path.resolve(__dirname, 'public/oauth/callback.html');
+              if (fs.existsSync(htmlPath)) {
+                res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                res.end(fs.readFileSync(htmlPath, 'utf8'));
+                return;
+              }
+            } catch {
+              /* fall through to next middleware */
+            }
+            next();
+          });
+        },
+      },
+    ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(localApiKey),
     },

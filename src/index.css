@@ -1,8 +1,14 @@
 @import "tailwindcss";
 
+/* Drive every `dark:` utility off the `.dark` class that App.tsx toggles,
+   NOT the OS `prefers-color-scheme`. Without this Tailwind v4 default-keys
+   dark mode to the OS, so on a dark-mode Mac light/dark/system all render
+   dark and the theme switch is a no-op. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @font-face {
   font-family: "GoogleSans";
-  src: url("../vendor/official-gemini/fonts/GoogleSans-Regular.nohints.ttf") format("truetype");
+  src: url("/gemini/vendor/official-gemini/fonts/GoogleSans-Regular.nohints.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -10,7 +16,7 @@
 
 @font-face {
   font-family: "GoogleSans";
-  src: url("../vendor/official-gemini/fonts/GoogleSans-Medium.nohints.ttf") format("truetype");
+  src: url("/gemini/vendor/official-gemini/fonts/GoogleSans-Medium.nohints.ttf") format("truetype");
   font-weight: 500;
   font-style: normal;
   font-display: swap;
@@ -18,7 +24,7 @@
 
 @font-face {
   font-family: "GoogleSans";
-  src: url("../vendor/official-gemini/fonts/GoogleSans-Bold.nohints.ttf") format("truetype");
+  src: url("/gemini/vendor/official-gemini/fonts/GoogleSans-Bold.nohints.ttf") format("truetype");
   font-weight: 700;
   font-style: normal;
   font-display: swap;
@@ -26,7 +32,7 @@
 
 @font-face {
   font-family: "GoogleSansText";
-  src: url("../vendor/official-gemini/fonts/GoogleSansText-Regular.ttf") format("truetype");
+  src: url("/gemini/vendor/official-gemini/fonts/GoogleSansText-Regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -34,7 +40,7 @@
 
 @font-face {
   font-family: "GoogleSansText";
-  src: url("../vendor/official-gemini/fonts/GoogleSansText-Medium.ttf") format("truetype");
+  src: url("/gemini/vendor/official-gemini/fonts/GoogleSansText-Medium.ttf") format("truetype");
   font-weight: 500;
   font-style: normal;
   font-display: swap;
@@ -42,7 +48,7 @@
 
 @font-face {
   font-family: "GoogleSansText";
-  src: url("../vendor/official-gemini/fonts/GoogleSansText-Bold.ttf") format("truetype");
+  src: url("/gemini/vendor/official-gemini/fonts/GoogleSansText-Bold.ttf") format("truetype");
   font-weight: 700;
   font-style: normal;
   font-display: swap;
@@ -1016,17 +1022,17 @@ a,
 
 /* Far layer — dim, smaller dots, slow diagonal drift. */
 .theme-gemini body::before {
-  opacity: 0.42;
+  opacity: 0.85;
   background-image:
-    radial-gradient(1px 1px at 13% 22%, rgba(255, 255, 255, 0.9), transparent 60%),
-    radial-gradient(1px 1px at 28% 70%, rgba(199, 125, 255, 0.75), transparent 60%),
-    radial-gradient(1px 1px at 47% 15%, rgba(34, 211, 238, 0.7), transparent 60%),
-    radial-gradient(1px 1px at 62% 55%, rgba(255, 255, 255, 0.85), transparent 60%),
-    radial-gradient(1px 1px at 78% 28%, rgba(255, 20, 147, 0.6), transparent 60%),
-    radial-gradient(1px 1px at 88% 74%, rgba(255, 255, 255, 0.7), transparent 60%),
-    radial-gradient(1px 1px at 7% 82%, rgba(34, 211, 238, 0.7), transparent 60%),
-    radial-gradient(1px 1px at 35% 92%, rgba(199, 125, 255, 0.55), transparent 60%),
-    radial-gradient(1px 1px at 95% 48%, rgba(255, 255, 255, 0.65), transparent 60%);
+    radial-gradient(1.6px 1.6px at 13% 22%, rgba(255, 255, 255, 1), transparent 65%),
+    radial-gradient(1.6px 1.6px at 28% 70%, rgba(199, 125, 255, 0.95), transparent 65%),
+    radial-gradient(1.6px 1.6px at 47% 15%, rgba(103, 232, 249, 0.95), transparent 65%),
+    radial-gradient(1.6px 1.6px at 62% 55%, rgba(255, 255, 255, 1), transparent 65%),
+    radial-gradient(1.6px 1.6px at 78% 28%, rgba(255, 77, 141, 0.9), transparent 65%),
+    radial-gradient(1.6px 1.6px at 88% 74%, rgba(255, 255, 255, 0.9), transparent 65%),
+    radial-gradient(1.6px 1.6px at 7% 82%, rgba(103, 232, 249, 0.9), transparent 65%),
+    radial-gradient(1.6px 1.6px at 35% 92%, rgba(199, 125, 255, 0.8), transparent 65%),
+    radial-gradient(1.6px 1.6px at 95% 48%, rgba(255, 255, 255, 0.85), transparent 65%);
   background-size: 420px 420px;
   animation: gemini-starfield-far 240s linear infinite;
 }
@@ -1034,15 +1040,15 @@ a,
 /* Near layer — brighter, slightly larger dots, faster drift in a different
    direction for real parallax. */
 .theme-gemini body::after {
-  opacity: 0.55;
+  opacity: 0.95;
   background-image:
-    radial-gradient(1.5px 1.5px at 8% 60%, rgba(255, 255, 255, 1), transparent 55%),
-    radial-gradient(1.5px 1.5px at 42% 12%, rgba(255, 20, 147, 0.75), transparent 55%),
-    radial-gradient(1.5px 1.5px at 74% 88%, rgba(34, 211, 238, 0.85), transparent 55%),
-    radial-gradient(2px 2px at 56% 44%, rgba(255, 214, 10, 0.55), transparent 55%),
-    radial-gradient(1.5px 1.5px at 90% 20%, rgba(255, 255, 255, 0.9), transparent 55%),
-    radial-gradient(1.5px 1.5px at 22% 38%, rgba(199, 125, 255, 0.8), transparent 55%),
-    radial-gradient(1.5px 1.5px at 68% 72%, rgba(255, 255, 255, 0.85), transparent 55%);
+    radial-gradient(2px 2px at 8% 60%, rgba(255, 255, 255, 1), transparent 60%),
+    radial-gradient(2px 2px at 42% 12%, rgba(255, 77, 141, 0.95), transparent 60%),
+    radial-gradient(2px 2px at 74% 88%, rgba(103, 232, 249, 1), transparent 60%),
+    radial-gradient(2.6px 2.6px at 56% 44%, rgba(255, 214, 10, 0.9), transparent 60%),
+    radial-gradient(2px 2px at 90% 20%, rgba(255, 255, 255, 1), transparent 60%),
+    radial-gradient(2px 2px at 22% 38%, rgba(199, 125, 255, 1), transparent 60%),
+    radial-gradient(2px 2px at 68% 72%, rgba(255, 255, 255, 1), transparent 60%);
   background-size: 560px 560px;
   animation: gemini-starfield-near 170s linear infinite;
 }
