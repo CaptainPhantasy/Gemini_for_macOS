@@ -23,6 +23,13 @@ const SOURCE_LABELS: Record<WorkspaceSource, string> = {
   docs: 'Google Docs',
   calendar: 'Google Calendar',
   gmail: 'Gmail',
+  tasks: 'Google Tasks',
+  keep: 'Google Keep',
+  sheets: 'Google Sheets',
+  slides: 'Google Slides',
+  forms: 'Google Forms',
+  sites: 'Google Sites',
+  cloudsearch: 'Cloud Search',
 };
 
 export interface ImportedWorkspaceContextOptions {

@@ -12,6 +12,12 @@ import {
   AlertTriangle,
   FolderOpen,
   ExternalLink,
+  ListChecks,
+  StickyNote,
+  Table,
+  ClipboardList,
+  Globe,
+  Search,
 } from 'lucide-react';
 import {
   calendarEventsToMarkdown,
@@ -20,6 +26,11 @@ import {
   type DriveFileSummary,
   type GmailMessageSummary,
   type ImportResult,
+  type TasksTaskSummary,
+  type KeepNoteSummary,
+  type SheetSummary,
+  type SlideSummary,
+  type FormSummary,
 } from '../lib/integrations';
 import { oauthHandler, GOOGLE_WORKSPACE_SCOPES, type OAuthConfig } from '../lib/oauth-handler';
 import { showGoogleDrivePicker, importPickedDriveFiles } from '../lib/google-picker';
@@ -39,18 +50,15 @@ interface IntegrationsProps {
   activeThread?: Thread | null;
 }
 
-type ServiceKey = 'drive' | 'docs' | 'calendar' | 'gmail';
-
+type ServiceKey = 'drive' | 'docs' | 'calendar' | 'gmail' | 'tasks' | 'keep' | 'sheets' | 'slides' | 'forms' | 'sites' | 'cloudsearch';
 interface ConnectionState {
   connected: boolean;
   connectedAt?: number;
 }
-
 interface BannerState {
   kind: 'success' | 'error';
   message: string;
 }
-
 const REDIRECT_URI = `${window.location.origin}/gemini/oauth/callback.html`;
 const LS_CONNECTIONS_KEY = 'gemini-for-macos:integrations:connections';
 function defaultConnections(): Record<ServiceKey, ConnectionState> {
@@ -59,6 +67,13 @@ function defaultConnections(): Record<ServiceKey, ConnectionState> {
     docs: { connected: false },
     calendar: { connected: false },
     gmail: { connected: false },
+    tasks: { connected: false },
+    keep: { connected: false },
+    sheets: { connected: false },
+    slides: { connected: false },
+    forms: { connected: false },
+    sites: { connected: false },
+    cloudsearch: { connected: false },
   };
 }
 
@@ -131,6 +146,11 @@ export function Integrations({
   const [driveFiles, setDriveFiles] = useState<DriveFileSummary[] | null>(null);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEventSummary[] | null>(null);
   const [gmailMessages, setGmailMessages] = useState<GmailMessageSummary[] | null>(null);
+  const [tasksItems, setTasksItems] = useState<TasksTaskSummary[] | null>(null);
+  const [sheetsItems, setSheetsItems] = useState<SheetSummary[] | null>(null);
+  const [slidesItems, setSlidesItems] = useState<SlideSummary[] | null>(null);
+  const [formsItems, setFormsItems] = useState<FormSummary[] | null>(null);
+  const [keepNotes, setKeepNotes] = useState<KeepNoteSummary[] | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [notebookLmDriveFileId, setNotebookLmDriveFileId] = useState<string | null>(null);
 
@@ -152,6 +172,13 @@ export function Integrations({
             docs: { connected: true, connectedAt: Date.now() },
             calendar: { connected: true, connectedAt: Date.now() },
             gmail: { connected: true, connectedAt: Date.now() },
+            tasks: { connected: true, connectedAt: Date.now() },
+            keep: { connected: true, connectedAt: Date.now() },
+            sheets: { connected: true, connectedAt: Date.now() },
+            slides: { connected: true, connectedAt: Date.now() },
+            forms: { connected: true, connectedAt: Date.now() },
+            sites: { connected: true, connectedAt: Date.now() },
+            cloudsearch: { connected: true, connectedAt: Date.now() },
           });
         }
       } catch {
@@ -190,6 +217,13 @@ export function Integrations({
       docs: { connected: true, connectedAt: Date.now() },
       calendar: { connected: true, connectedAt: Date.now() },
       gmail: { connected: true, connectedAt: Date.now() },
+      tasks: { connected: true, connectedAt: Date.now() },
+      keep: { connected: true, connectedAt: Date.now() },
+      sheets: { connected: true, connectedAt: Date.now() },
+      slides: { connected: true, connectedAt: Date.now() },
+      forms: { connected: true, connectedAt: Date.now() },
+      sites: { connected: true, connectedAt: Date.now() },
+      cloudsearch: { connected: true, connectedAt: Date.now() },
     });
   };
 
@@ -405,6 +439,191 @@ export function Integrations({
       setBusy(null);
     }
   };
+  const handleListTasks = async (): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy('tasks:list');
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const items = await integrations.googleWorkspace.listTasks(token);
+      setTasksItems(items);
+      setConnections((prev) => ({ ...prev, tasks: { connected: true, connectedAt: Date.now() } }));
+      if (items.length === 0) showBanner({ kind: 'success', message: 'No pending tasks found.' });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Tasks list failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const handleImportTasks = async (): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy('tasks:import');
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const result = await integrations.googleWorkspace.importTasksList(token);
+      if (!result.ok || !result.content) {
+        showBanner({ kind: 'error', message: result.error ?? 'Tasks import failed' });
+        return;
+      }
+      const artifact = await persistAsArtifact(result, 'Google Tasks');
+      if (artifact) showBanner({ kind: 'success', message: `Imported as artifact: ${artifact.title}` });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Tasks import failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const handleListSpreadsheets = async (): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy('sheets:list');
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const items = await integrations.googleWorkspace.listSpreadsheets(token);
+      setSheetsItems(items);
+      setConnections((prev) => ({ ...prev, sheets: { connected: true, connectedAt: Date.now() } }));
+      if (items.length === 0) showBanner({ kind: 'success', message: 'No spreadsheets found.' });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Sheets list failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const handleReadSpreadsheet = async (spreadsheetId: string, fallbackName: string): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy(`sheets:read:${spreadsheetId}`);
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const result = await integrations.googleWorkspace.readSpreadsheet(token, spreadsheetId);
+      if (!result.ok || !result.content) {
+        showBanner({ kind: 'error', message: result.error ?? 'Sheet read failed' });
+        return;
+      }
+      const artifact = await persistAsArtifact(result, fallbackName);
+      if (artifact) showBanner({ kind: 'success', message: `Imported as artifact: ${artifact.title}` });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Sheet read failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const handleListPresentations = async (): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy('slides:list');
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const items = await integrations.googleWorkspace.listPresentations(token);
+      setSlidesItems(items);
+      setConnections((prev) => ({ ...prev, slides: { connected: true, connectedAt: Date.now() } }));
+      if (items.length === 0) showBanner({ kind: 'success', message: 'No presentations found.' });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Slides list failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const handleReadPresentation = async (presentationId: string, fallbackName: string): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy(`slides:read:${presentationId}`);
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const result = await integrations.googleWorkspace.readPresentation(token, presentationId);
+      if (!result.ok || !result.content) {
+        showBanner({ kind: 'error', message: result.error ?? 'Presentation read failed' });
+        return;
+      }
+      const artifact = await persistAsArtifact(result, fallbackName);
+      if (artifact) showBanner({ kind: 'success', message: `Imported as artifact: ${artifact.title}` });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Presentation read failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const handleListForms = async (): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy('forms:list');
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const items = await integrations.googleWorkspace.listForms(token);
+      setFormsItems(items);
+      setConnections((prev) => ({ ...prev, forms: { connected: true, connectedAt: Date.now() } }));
+      if (items.length === 0) showBanner({ kind: 'success', message: 'No forms found.' });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Forms list failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const handleReadForm = async (formId: string, fallbackName: string): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy(`forms:read:${formId}`);
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const result = await integrations.googleWorkspace.readForm(token, formId);
+      if (!result.ok || !result.content) {
+        showBanner({ kind: 'error', message: result.error ?? 'Form read failed' });
+        return;
+      }
+      const artifact = await persistAsArtifact(result, fallbackName);
+      if (artifact) showBanner({ kind: 'success', message: `Imported as artifact: ${artifact.title}` });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Form read failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const handleListKeepNotes = async (): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy('keep:list');
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const items = await integrations.googleWorkspace.listKeepNotes(token);
+      setKeepNotes(items);
+      setConnections((prev) => ({ ...prev, keep: { connected: true, connectedAt: Date.now() } }));
+      if (items.length === 0) showBanner({ kind: 'success', message: 'No Keep notes found.' });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Keep list failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const handleImportKeepNote = async (noteName: string, fallbackTitle: string): Promise<void> => {
+    const clientId = requireClientId();
+    if (!clientId) return;
+    setBusy(`keep:import:${noteName}`);
+    try {
+      const token = await getToken(clientId);
+      if (!token) return;
+      const result = await integrations.googleWorkspace.importKeepNote(token, noteName);
+      if (!result.ok || !result.content) {
+        showBanner({ kind: 'error', message: result.error ?? 'Keep import failed' });
+        return;
+      }
+      const artifact = await persistAsArtifact(result, fallbackTitle);
+      if (artifact) showBanner({ kind: 'success', message: `Imported as artifact: ${artifact.title}` });
+    } catch (error) {
+      showBanner({ kind: 'error', message: `Keep import failed: ${errorMessage(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  };
   const uploadNotebookLmPack = async (packTitle: string, packArtifacts: Artifact[], thread?: Thread | null): Promise<void> => {
     const clientId = requireClientId();
     if (!clientId) return;
@@ -581,6 +800,152 @@ export function Integrations({
                   </ul>
                 ) : null}
               </section>
+              <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+                <header className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <ListChecks size={18} className="text-teal-600" />
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Google Tasks</h3>
+                  </div>
+                  <span className="text-xs text-gray-500">{connections.tasks.connected ? 'Connected' : 'Not connected'}</span>
+                </header>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => handleConnect('tasks')} disabled={busy !== null} className="rounded-lg bg-teal-600 px-3 py-1.5 text-sm text-white hover:bg-teal-700 disabled:opacity-50">
+                    {busy === 'connect:tasks' ? <Loader2 className="animate-spin" size={14} /> : 'Connect'}
+                  </button>
+                  <button onClick={handleListTasks} disabled={busy !== null} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+                    {busy === 'tasks:list' ? 'Loading...' : 'List tasks'}
+                  </button>
+                  <button onClick={handleImportTasks} disabled={busy !== null} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+                    {busy === 'tasks:import' ? 'Importing...' : 'Import all tasks'}
+                  </button>
+                </div>
+                {tasksItems && tasksItems.length > 0 ? (
+                  <ul className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+                    {tasksItems.map((task) => (
+                      <li key={task.id} className="px-3 py-2 text-sm">
+                        <div className="text-gray-800 dark:text-gray-100">{task.status === 'completed' ? '✓' : '○'} {task.title}</div>
+                        {task.due ? <div className="text-xs text-gray-500">Due: {task.due}</div> : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+              <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+                <header className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Table size={18} className="text-green-600" />
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Google Sheets</h3>
+                  </div>
+                  <span className="text-xs text-gray-500">{connections.sheets.connected ? 'Connected' : 'Not connected'}</span>
+                </header>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => handleConnect('sheets')} disabled={busy !== null} className="rounded-lg bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700 disabled:opacity-50">
+                    {busy === 'connect:sheets' ? <Loader2 className="animate-spin" size={14} /> : 'Connect'}
+                  </button>
+                  <button onClick={handleListSpreadsheets} disabled={busy !== null} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+                    {busy === 'sheets:list' ? 'Loading...' : 'List spreadsheets'}
+                  </button>
+                </div>
+                {sheetsItems && sheetsItems.length > 0 ? (
+                  <ul className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+                    {sheetsItems.map((sheet) => (
+                      <li key={sheet.spreadsheetId} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                        <span className="truncate text-gray-800 dark:text-gray-100">{sheet.title}</span>
+                        <button onClick={() => handleReadSpreadsheet(sheet.spreadsheetId, sheet.title)} disabled={busy !== null} className="shrink-0 rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
+                          Import
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+              <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+                <header className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <ClipboardList size={18} className="text-orange-600" />
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Google Slides</h3>
+                  </div>
+                  <span className="text-xs text-gray-500">{connections.slides.connected ? 'Connected' : 'Not connected'}</span>
+                </header>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => handleConnect('slides')} disabled={busy !== null} className="rounded-lg bg-orange-600 px-3 py-1.5 text-sm text-white hover:bg-orange-700 disabled:opacity-50">
+                    {busy === 'connect:slides' ? <Loader2 className="animate-spin" size={14} /> : 'Connect'}
+                  </button>
+                  <button onClick={handleListPresentations} disabled={busy !== null} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+                    {busy === 'slides:list' ? 'Loading...' : 'List presentations'}
+                  </button>
+                </div>
+                {slidesItems && slidesItems.length > 0 ? (
+                  <ul className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+                    {slidesItems.map((slide) => (
+                      <li key={slide.presentationId} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                        <span className="truncate text-gray-800 dark:text-gray-100">{slide.title}</span>
+                        <button onClick={() => handleReadPresentation(slide.presentationId, slide.title)} disabled={busy !== null} className="shrink-0 rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
+                          Import
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+              <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+                <header className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <StickyNote size={18} className="text-indigo-600" />
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Google Forms</h3>
+                  </div>
+                  <span className="text-xs text-gray-500">{connections.forms.connected ? 'Connected' : 'Not connected'}</span>
+                </header>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => handleConnect('forms')} disabled={busy !== null} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50">
+                    {busy === 'connect:forms' ? <Loader2 className="animate-spin" size={14} /> : 'Connect'}
+                  </button>
+                  <button onClick={handleListForms} disabled={busy !== null} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+                    {busy === 'forms:list' ? 'Loading...' : 'List forms'}
+                  </button>
+                </div>
+                {formsItems && formsItems.length > 0 ? (
+                  <ul className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+                    {formsItems.map((form) => (
+                      <li key={form.formId} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                        <span className="truncate text-gray-800 dark:text-gray-100">{form.title}</span>
+                        <button onClick={() => handleReadForm(form.formId, form.title)} disabled={busy !== null} className="shrink-0 rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
+                          Import
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+              <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+                <header className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <ListChecks size={18} className="text-yellow-600" />
+                    <h3 className="font-semibold text-gray-900 dark:text-white">Google Keep</h3>
+                  </div>
+                  <span className="text-xs text-gray-500">{connections.keep.connected ? 'Connected' : 'Not connected'}</span>
+                </header>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => handleConnect('keep')} disabled={busy !== null} className="rounded-lg bg-yellow-600 px-3 py-1.5 text-sm text-white hover:bg-yellow-700 disabled:opacity-50">
+                    {busy === 'connect:keep' ? <Loader2 className="animate-spin" size={14} /> : 'Connect'}
+                  </button>
+                  <button onClick={handleListKeepNotes} disabled={busy !== null} className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+                    {busy === 'keep:list' ? 'Loading...' : 'List notes'}
+                  </button>
+                </div>
+                {keepNotes && keepNotes.length > 0 ? (
+                  <ul className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+                    {keepNotes.map((note) => (
+                      <li key={note.name} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                        <span className="truncate text-gray-800 dark:text-gray-100">{note.title}</span>
+                        <button onClick={() => handleImportKeepNote(note.name, note.title)} disabled={busy !== null} className="shrink-0 rounded bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
+                          Import
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
               {notebookLmEnabled !== false && (
                 <section className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
                   <header className="flex items-center justify-between mb-3">
@@ -633,12 +998,32 @@ export function Integrations({
               <section className="rounded-xl border border-dashed border-gray-200 dark:border-gray-800 p-4 opacity-70">
                 <header className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
+                    <Globe size={18} className="text-gray-500" />
+                    <h3 className="font-semibold text-gray-700 dark:text-gray-300">Google Sites</h3>
+                  </div>
+                  <span className="text-xs text-gray-500">(Coming soon)</span>
+                </header>
+                <p className="mt-2 text-xs text-gray-500">Browse and import content from Google Sites. Requires Sites API enablement.</p>
+              </section>
+              <section className="rounded-xl border border-dashed border-gray-200 dark:border-gray-800 p-4 opacity-70">
+                <header className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Search size={18} className="text-gray-500" />
+                    <h3 className="font-semibold text-gray-700 dark:text-gray-300">Cloud Search</h3>
+                  </div>
+                  <span className="text-xs text-gray-500">(Coming soon)</span>
+                </header>
+                <p className="mt-2 text-xs text-gray-500">Search across your Google Workspace data. Requires Cloud Search API enablement.</p>
+              </section>
+              <section className="rounded-xl border border-dashed border-gray-200 dark:border-gray-800 p-4 opacity-70">
+                <header className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
                     <Plane size={18} className="text-gray-500" />
                     <h3 className="font-semibold text-gray-700 dark:text-gray-300">Travel</h3>
                   </div>
-                  <span className="text-xs text-gray-500">(Not implemented)</span>
+                  <span className="text-xs text-gray-500">(Not available)</span>
                 </header>
-                <p className="mt-2 text-xs text-gray-500">Google Flights does not expose a public developer API.</p>
+                <p className="mt-2 text-xs text-gray-500">Google Flights does not expose a public developer API. Alternatives: Google Maps Routes API, SerpAPI, or Amadeus.</p>
               </section>
             </>
           )}

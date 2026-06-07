@@ -34,6 +34,12 @@ import { openDB, type IDBPDatabase } from 'idb';
 export const GOOGLE_DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 export const GOOGLE_DRIVE_READ_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 export const GOOGLE_DOCS_SCOPE = 'https://www.googleapis.com/auth/documents';
+export const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+export const GOOGLE_SLIDES_SCOPE = 'https://www.googleapis.com/auth/presentations';
+export const GOOGLE_FORMS_SCOPE = 'https://www.googleapis.com/auth/forms';
+export const GOOGLE_TASKS_READ_SCOPE = 'https://www.googleapis.com/auth/tasks.readonly';
+export const GOOGLE_TASKS_SCOPE = 'https://www.googleapis.com/auth/tasks';
+export const GOOGLE_KEEP_SCOPE = 'https://www.googleapis.com/auth/keep';
 export const GOOGLE_CALENDAR_READ_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
 export const GOOGLE_GMAIL_READ_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 export const GOOGLE_BILLING_READ_SCOPE = 'https://www.googleapis.com/auth/cloud-billing.readonly';
@@ -42,6 +48,12 @@ export const GOOGLE_WORKSPACE_SCOPES = [
   GOOGLE_DRIVE_FILE_SCOPE,
   GOOGLE_DRIVE_READ_SCOPE,
   GOOGLE_DOCS_SCOPE,
+  GOOGLE_SHEETS_SCOPE,
+  GOOGLE_SLIDES_SCOPE,
+  GOOGLE_FORMS_SCOPE,
+  GOOGLE_TASKS_READ_SCOPE,
+  GOOGLE_TASKS_SCOPE,
+  GOOGLE_KEEP_SCOPE,
   GOOGLE_CALENDAR_READ_SCOPE,
   GOOGLE_GMAIL_READ_SCOPE,
   GOOGLE_BILLING_READ_SCOPE,

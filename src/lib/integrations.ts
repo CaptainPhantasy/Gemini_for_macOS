@@ -15,7 +15,7 @@ export interface ImportResult {
   content?: string; // text content OR data URI for binary
   mimeType?: string;
   sourceFileId?: string;
-  sourceType?: 'drive' | 'docs' | 'calendar' | 'gmail';
+  sourceType?: 'drive' | 'docs' | 'calendar' | 'gmail' | 'tasks' | 'keep' | 'sheets' | 'slides' | 'forms' | 'sites' | 'cloudsearch';
   fetchedAt?: number;
   error?: string;
 }
@@ -49,6 +49,33 @@ export interface GmailMessageSummary {
   snippet: string;
   date?: string;
 }
+export interface TasksTaskSummary {
+  id: string;
+  title: string;
+  status: string;
+  due?: string;
+  updated?: string;
+}
+export interface KeepNoteSummary {
+  name: string;
+  title: string;
+  updated?: string;
+}
+export interface SheetSummary {
+  spreadsheetId: string;
+  title: string;
+  sheets?: string[];
+}
+export interface SlideSummary {
+  presentationId: string;
+  title: string;
+  slideCount?: number;
+}
+export interface FormSummary {
+  formId: string;
+  title: string;
+  responderUri?: string;
+}
 
 const GOOGLE_API_TIMEOUT_MS = 15_000;
 const GOOGLE_API_MAX_RETRIES = 2;
@@ -59,7 +86,14 @@ const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 const DOCS_API = 'https://docs.googleapis.com/v1';
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
+const TASKS_API = 'https://tasks.googleapis.com/tasks/v1';
+const KEEP_API = 'https://keep.googleapis.com/v1';
+const SITES_API = 'https://sites.googleapis.com/v1';
+const CLOUD_SEARCH_API = 'https://cloudsearch.googleapis.com/v1';
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
+const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
+const SLIDES_API = 'https://slides.googleapis.com/v1/presentations';
+const FORMS_API = 'https://forms.googleapis.com/v1/forms';
 
 interface GoogleApiFetchOptions extends Omit<RequestInit, 'signal'> {
   timeoutMs?: number;
@@ -693,8 +727,312 @@ export const integrations = {
         return [];
       }
     },
+    async listTasks(accessToken: string, tasklistId = '@default'): Promise<TasksTaskSummary[]> {
+      try {
+        const response = await fetchWithRetry(`${TASKS_API}/lists/${encodeURIComponent(tasklistId)}/tasks?maxResults=50&showCompleted=false`, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+        if (!response.ok) {
+          const body = await response.text();
+          console.error('[integrations] Tasks list failed:', response.status, body);
+          return [];
+        }
+        const data = await response.json() as { items?: Array<{ id?: string; title?: string; status?: string; due?: string; updated?: string }> };
+        const items = data.items ?? [];
+        const result: TasksTaskSummary[] = [];
+        for (const item of items) {
+          if (item.id && item.title) {
+            result.push({
+              id: item.id,
+              title: item.title,
+              status: item.status ?? 'needsAction',
+              ...(item.due ? { due: item.due } : {}),
+              ...(item.updated ? { updated: item.updated } : {}),
+            });
+          }
+        }
+        return result;
+      } catch (error) {
+        console.error('[integrations] Tasks list error:', errorMessage(error));
+        return [];
+      }
+    },
+    async importTasksList(accessToken: string, tasklistId = '@default'): Promise<ImportResult> {
+      try {
+        const response = await fetchWithRetry(`${TASKS_API}/lists/${encodeURIComponent(tasklistId)}/tasks?maxResults=100`, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+        if (!response.ok) {
+          const body = await response.text();
+          return { ok: false, error: `Tasks fetch failed: ${response.status} ${body}` };
+        }
+        const data = await response.json() as { items?: Array<{ id?: string; title?: string; status?: string; due?: string; notes?: string }> };
+        const items = data.items ?? [];
+        const lines = ['# Google Tasks\n'];
+        for (const item of items) {
+          const title = item.title ?? '(no title)';
+          const status = item.status === 'completed' ? '[x]' : '[ ]';
+          const due = item.due ? ` (due: ${item.due})` : '';
+          const notes = item.notes ? `\n  ${item.notes}` : '';
+          lines.push(`- ${status} ${title}${due}${notes}`);
+        }
+        return {
+          ok: true,
+          artifactId: generateId(),
+          title: 'Google Tasks',
+          content: lines.join('\n'),
+          mimeType: 'text/markdown',
+          sourceFileId: tasklistId,
+          sourceType: 'tasks',
+          fetchedAt: Date.now(),
+        };
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) };
+      }
+    },
+    async listSpreadsheets(accessToken: string): Promise<SheetSummary[]> {
+      try {
+        const params = new URLSearchParams();
+        params.set('fields', 'spreadsheets(id,title,sheets)');
+        params.set('pageSize', '50');
+        const response = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files?${params.toString()}&q=mimeType='application/vnd.google-apps.spreadsheet'`, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+        if (!response.ok) {
+          const body = await response.text();
+          console.error('[integrations] Sheets list failed:', response.status, body);
+          return [];
+        }
+        const data = await response.json() as { files?: Array<{ id?: string; name?: string; sheets?: string[] }> };
+        const files = data.files ?? [];
+        const result: SheetSummary[] = [];
+        for (const f of files) {
+          if (f.id && f.name) {
+            result.push({ spreadsheetId: f.id, title: f.name, sheets: f.sheets });
+          }
+        }
+        return result;
+      } catch (error) {
+        console.error('[integrations] Sheets list error:', errorMessage(error));
+        return [];
+      }
+    },
+    async readSpreadsheet(accessToken: string, spreadsheetId: string, range?: string): Promise<ImportResult> {
+      try {
+        let url = `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/Sheet1?valueRenderOption=FORMATTED_VALUE`;
+        if (range) url += `&range=${encodeURIComponent(range)}`;
+        const response = await fetchWithRetry(url, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+        if (!response.ok) {
+          const body = await response.text();
+          return { ok: false, error: `Sheets read failed: ${response.status} ${body}` };
+        }
+        const data = await response.json() as { values?: string[][]; range?: string };
+        const values = data.values ?? [];
+        const lines = values.map((row) => row.join(' | ')).join('\n');
+        return {
+          ok: true,
+          artifactId: generateId(),
+          title: `Spreadsheet ${spreadsheetId}`,
+          content: `# Google Sheet: ${spreadsheetId}\nRange: ${data.range ?? 'Sheet1'}\n\n${lines}`,
+          mimeType: 'text/markdown',
+          sourceFileId: spreadsheetId,
+          sourceType: 'sheets',
+          fetchedAt: Date.now(),
+        };
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) };
+      }
+    },
+    async listPresentations(accessToken: string): Promise<SlideSummary[]> {
+      try {
+        const params = new URLSearchParams();
+        params.set('fields', 'files(id,name)');
+        params.set('pageSize', '50');
+        const response = await fetchWithRetry(`https://www.googleapis.com/drive/v3/files?${params.toString()}&q=mimeType='application/vnd.google-apps.presentation'`, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+        if (!response.ok) {
+          const body = await response.text();
+          console.error('[integrations] Slides list failed:', response.status, body);
+          return [];
+        }
+        const data = await response.json() as { files?: Array<{ id?: string; name?: string }> };
+        const files = data.files ?? [];
+        const result: SlideSummary[] = [];
+        for (const f of files) {
+          if (f.id && f.name) {
+            result.push({ presentationId: f.id, title: f.name });
+          }
+        }
+        return result;
+      } catch (error) {
+        console.error('[integrations] Slides list error:', errorMessage(error));
+        return [];
+      }
+    },
+    async readPresentation(accessToken: string, presentationId: string): Promise<ImportResult> {
+      try {
+        const response = await fetchWithRetry(`${SLIDES_API}/${encodeURIComponent(presentationId)}?fields=title,slides(objectId,shape,table)`, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+        if (!response.ok) {
+          const body = await response.text();
+          return { ok: false, error: `Slides read failed: ${response.status} ${body}` };
+        }
+        const data = await response.json() as { title?: string; slides?: Array<{ objectId?: string; shape?: { text?: { textElements?: Array<{ textRun?: { content?: string } }> } } }> };
+        const lines = [`# ${data.title ?? 'Presentation'}\n`];
+        for (const slide of (data.slides ?? [])) {
+          const textParts: string[] = [];
+          for (const el of (slide.shape?.text?.textElements ?? [])) {
+            if (el.textRun?.content) textParts.push(el.textRun.content.trim());
+          }
+          if (textParts.length > 0) {
+            lines.push(`## Slide\n${textParts.join(' ')}`);
+          }
+        }
+        return {
+          ok: true,
+          artifactId: generateId(),
+          title: data.title ?? 'Untitled Presentation',
+          content: lines.join('\n\n'),
+          mimeType: 'text/markdown',
+          sourceFileId: presentationId,
+          sourceType: 'slides',
+          fetchedAt: Date.now(),
+        };
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) };
+      }
+    },
+    async listForms(accessToken: string): Promise<FormSummary[]> {
+      try {
+        const params = new URLSearchParams();
+        params.set('fields', 'forms(id,name,responderUri)');
+        params.set('pageSize', '50');
+        const response = await fetchWithRetry(`https://forms.googleapis.com/v1/forms?${params.toString()}`, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+        if (!response.ok) {
+          const body = await response.text();
+          console.error('[integrations] Forms list failed:', response.status, body);
+          return [];
+        }
+        const data = await response.json() as { forms?: Array<{ formId?: string; info?: { title?: string }; responderUri?: string }> };
+        const forms = data.forms ?? [];
+        const result: FormSummary[] = [];
+        for (const f of forms) {
+          if (f.formId) {
+            result.push({ formId: f.formId, title: f.info?.title ?? 'Untitled Form', responderUri: f.responderUri });
+          }
+        }
+        return result;
+      } catch (error) {
+        console.error('[integrations] Forms list error:', errorMessage(error));
+        return [];
+      }
+    },
+    async readForm(accessToken: string, formId: string): Promise<ImportResult> {
+      try {
+        const response = await fetchWithRetry(`${FORMS_API}/${encodeURIComponent(formId)}?fields=formId,info,items`, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+        if (!response.ok) {
+          const body = await response.text();
+          return { ok: false, error: `Forms read failed: ${response.status} ${body}` };
+        }
+        const data = await response.json() as { info?: { title?: string }; items?: Array<{ questionItem?: { question?: { questionId?: string; text?: string } } }> };
+        const lines = [`# ${data.info?.title ?? 'Form'}\n`];
+        for (const item of (data.items ?? [])) {
+          const q = item.questionItem?.question;
+          if (q?.text) {
+            lines.push(`- ${q.text}`);
+          }
+        }
+        return {
+          ok: true,
+          artifactId: generateId(),
+          title: data.info?.title ?? 'Untitled Form',
+          content: lines.join('\n'),
+          mimeType: 'text/markdown',
+          sourceFileId: formId,
+          sourceType: 'forms',
+          fetchedAt: Date.now(),
+        };
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) };
+      }
+    },
+    async listKeepNotes(accessToken: string): Promise<KeepNoteSummary[]> {
+      try {
+        const response = await fetchWithRetry(`${KEEP_API}/notes?pageSize=50`, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+        if (!response.ok) {
+          const body = await response.text();
+          console.error('[integrations] Keep list failed:', response.status, body);
+          return [];
+        }
+        const data = await response.json() as { notes?: Array<{ name?: string; title?: string; updated?: string }> };
+        const notes = data.notes ?? [];
+        const result: KeepNoteSummary[] = [];
+        for (const n of notes) {
+          if (n.name && n.title) {
+            result.push({ name: n.name, title: n.title, ...(n.updated ? { updated: n.updated } : {}) });
+          }
+        }
+        return result;
+      } catch (error) {
+        console.error('[integrations] Keep list error:', errorMessage(error));
+        return [];
+      }
+    },
+    async importKeepNote(accessToken: string, noteName: string): Promise<ImportResult> {
+      try {
+        const response = await fetchWithRetry(`${KEEP_API}/notes/${encodeURIComponent(noteName)}`, {
+          method: 'GET',
+          headers: authHeaders(accessToken),
+        });
+        if (!response.ok) {
+          const body = await response.text();
+          return { ok: false, error: `Keep note fetch failed: ${response.status} ${body}` };
+        }
+        const data = await response.json() as { title?: string; textContent?: string; listContent?: Array<{ text?: string; checked?: boolean }> };
+        const lines = [`# ${data.title ?? 'Keep Note'}\n`];
+        if (data.textContent) {
+          lines.push(data.textContent);
+        }
+        for (const item of (data.listContent ?? [])) {
+          const check = item.checked ? '[x]' : '[ ]';
+          lines.push(`- ${check} ${item.text ?? ''}`);
+        }
+        return {
+          ok: true,
+          artifactId: generateId(),
+          title: data.title ?? 'Keep Note',
+          content: lines.join('\n'),
+          mimeType: 'text/markdown',
+          sourceFileId: noteName,
+          sourceType: 'keep',
+          fetchedAt: Date.now(),
+        };
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) };
+      }
+    },
   },
-
+  // Google Travel placeholder — Google Flights API requires partner access.
+  // Viable alternatives: Google Maps Routes API, SerpAPI, or Amadeus API.
   travel: {
     async searchFlights(
       accessToken: string,
