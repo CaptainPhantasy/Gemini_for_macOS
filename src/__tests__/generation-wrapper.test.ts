@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { isTransientError, generateWithFailoverStream } from '../lib/generation-wrapper';
+import { isTransientError, generateWithFailoverStream } from '../lib/generation/generation-wrapper';
 import { extractResponseParts } from '../lib/agent-tools';
 
 type Chunk = Record<string, unknown>;
@@ -220,6 +220,82 @@ describe('generation-wrapper', () => {
       expect(result.response?.candidates?.[0]?.content?.parts?.[1]).toEqual({
         functionCall: { name: 'read_file', args: { path: '/tmp/demo.txt' }, id: 'fc-1' },
       });
+    });
+    test('propagates AbortSignal to the SDK as abortSignal', async () => {
+      const ai: any = {
+        models: {
+          generateContentStream: vi.fn().mockResolvedValue(
+            streamFromChunks([
+              { candidates: [{ content: { parts: [{ text: 'ok' }] } }] },
+            ]),
+          ),
+        },
+      };
+      const controller = new AbortController();
+
+      await generateWithFailoverStream({
+        ai,
+        model: 'primary-model',
+        contents: [{ role: 'user', parts: [{ text: 'abort test' }] }],
+        config: {},
+        signal: controller.signal,
+      });
+      expect(ai.models.generateContentStream).toHaveBeenCalledTimes(1);
+      const callArgs = ai.models.generateContentStream.mock.calls[0][0];
+      expect(callArgs.abortSignal).toBe(controller.signal);
+    });
+    test('throws AbortError synchronously when signal is already aborted', async () => {
+      const ai: any = {
+        models: {
+          generateContentStream: vi.fn().mockResolvedValue(
+            streamFromChunks([
+              { candidates: [{ content: { parts: [{ text: 'never delivered' }] } }] },
+            ]),
+          ),
+        },
+      };
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        generateWithFailoverStream({
+          ai,
+          model: 'primary-model',
+          contents: [{ role: 'user', parts: [{ text: 'pre-aborted' }] }],
+          config: {},
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+      // The SDK should never have been called when the signal is pre-aborted.
+      expect(ai.models.generateContentStream).not.toHaveBeenCalled();
+    });
+    test('aborts mid-stream and does not retry or fall back', async () => {
+      const controller = new AbortController();
+      // Build a stream that yields one chunk, then we abort.
+      const chunkStream = (async function* () {
+        yield { candidates: [{ content: { parts: [{ text: 'partial ' }] } }] };
+        // Allow the consumer loop to observe the chunk and then we abort.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        controller.abort();
+        yield { candidates: [{ content: { parts: [{ text: 'tail' }] } }] };
+      })();
+      const ai: any = {
+        models: {
+          generateContentStream: vi.fn().mockResolvedValue(chunkStream),
+        },
+      };
+      await expect(
+        generateWithFailoverStream({
+          ai,
+          model: 'primary-model',
+          fallbackModel: 'fallback-model',
+          contents: [{ role: 'user', parts: [{ text: 'abort mid' }] }],
+          config: {},
+          maxRetries: 3,
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+      // Only one SDK call — no retries, no fallback.
+      expect(ai.models.generateContentStream).toHaveBeenCalledTimes(1);
     });
   });
 });

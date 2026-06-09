@@ -15,8 +15,23 @@ interface ChatProps {
   isLoading?: boolean;
   onRegenerate?: () => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
+  // Chat barge-in and queue surface (docs/plans/chat-barge-and-queue.md).
+  // The 6 props below let the form + queue strip in Chat.tsx route user
+  // intent to the right App-level handler without owning any state itself.
+  /** Stop the in-flight generation. Called from the stop button + Cmd+. */
+  onStop?: () => void;
+  /** Queue a new message without sending it. Called when Enter is pressed while isLoading. */
+  onEnqueue?: (content: string) => void;
+  /** Flush the first queued message immediately, aborting the current turn. */
+  onSendQueued?: () => void;
+  /** Remove a single queued message by id. */
+  onCancelQueued?: (id: string) => void;
+  /** Replace a queued message's content by id. */
+  onEditQueued?: (id: string, newContent: string) => void;
+  /** The current queue. Rendered as a strip above the form when non-empty. */
+  queuedMessages?: ReadonlyArray<{ id: string; content: string }>;
 }
-export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemId, onSetGem, isLoading, onRegenerate, onEditMessage }: ChatProps) {
+export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemId, onSetGem, isLoading, onRegenerate, onEditMessage, onStop, onEnqueue, onSendQueued, onCancelQueued, onEditQueued, queuedMessages }: ChatProps) {
   const [input, setInput] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [attachment, setAttachment] = useState<{ dataUri: string; mimeType: string; name: string } | null>(null);
@@ -25,6 +40,9 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [isNearBottom, setIsNearBottom] = useState(true);
+  // Queue strip inline edit state: id of the queued message currently being
+  // edited in the strip. Null = no pill is in edit mode.
+  const [editingQueuedId, setEditingQueuedId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -57,6 +75,26 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
   useEffect(() => {
     inputRef.current?.focus();
   }, [messages.length === 0]);
+  // Feature: Escape-to-enqueue-while-loading. Listens on the input element
+  // itself (not window) so the handler only fires when the input is
+  // focused. Guard: isLoading AND non-empty input. On Escape, call
+  // onEnqueue and clear the input. The input keeps focus so the user
+  // can immediately type a follow-up. See docs/plans/chat-barge-and-queue.md
+  // §Step 11.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isLoading && el.value.trim()) {
+        e.preventDefault();
+        onEnqueue?.(el.value);
+        el.value = '';
+        setInput('');
+      }
+    };
+    el.addEventListener('keydown', onKey);
+    return () => el.removeEventListener('keydown', onKey);
+  }, [isLoading, onEnqueue]);
 
   useEffect(() => {
     folderInputRef.current?.setAttribute('webkitdirectory', '');
@@ -109,15 +147,29 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (input.trim() || attachment || contextBundle) {
+    if (!(input.trim() || attachment || contextBundle)) return;
+    // Barge vs enqueue routing: if a turn is in flight, the user can either
+    // - press Enter (default form submit) → enqueue for later flush
+    // - click the send button (still submit, but a different visual) → barge
+    // The send button's onClick handler in the JSX below calls
+    // onSendQueued() and prevents the default submit so we end up here only
+    // for the Enter-to-enqueue path. The send-button path is handled in the
+    // JSX so we can also abort the in-flight turn there.
+    if (isLoading) {
       const content = contextBundle ? `${input}\n\n${contextBundle.text}`.trim() : input;
-      onSendMessage(content, undefined, attachment ?? undefined);
+      onEnqueue?.(content);
       setInput('');
-      setAttachment(null);
-      setContextBundle(null);
-      // Feature 20: refocus after send
+      // Keep attachment + contextBundle so they apply to the eventual send.
       setTimeout(() => inputRef.current?.focus(), 50);
+      return;
     }
+    const content = contextBundle ? `${input}\n\n${contextBundle.text}`.trim() : input;
+    onSendMessage(content, undefined, attachment ?? undefined);
+    setInput('');
+    setAttachment(null);
+    setContextBundle(null);
+    // Feature 20: refocus after send
+    setTimeout(() => inputRef.current?.focus(), 50);
   };
 
   // Feature 6: Copy message to clipboard
@@ -310,6 +362,94 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
             )}
           </div>
         )}
+        {/*
+          Queue strip: visible only while there is at least one queued
+          message. Each pill is editable (pencil) and cancellable (×).
+          The trailing "Send all now" button flushes the first queued
+          message immediately, aborting the current turn. See
+          docs/plans/chat-barge-and-queue.md §2.3.
+        */}
+        {(queuedMessages?.length ?? 0) > 0 && (
+          <div className="w-full max-w-4xl mx-auto mb-2 flex items-center gap-2 overflow-x-auto py-1">
+            {queuedMessages!.map((m) => {
+              const isEditing = editingQueuedId === m.id;
+              const truncated = m.content.length > 60 ? m.content.slice(0, 60) + '…' : m.content;
+              return (
+                <div
+                  key={m.id}
+                  className="flex items-center gap-1 rounded-full bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 px-3 py-1 text-sm text-blue-900 dark:text-blue-100"
+                >
+                  {isEditing ? (
+                    <input
+                      autoFocus
+                      type="text"
+                      defaultValue={m.content}
+                      onBlur={(e) => {
+                        if (e.currentTarget.value.trim()) onEditQueued?.(m.id, e.currentTarget.value);
+                        setEditingQueuedId(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const v = e.currentTarget.value;
+                          if (v.trim()) onEditQueued?.(m.id, v);
+                          setEditingQueuedId(null);
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setEditingQueuedId(null);
+                        }
+                      }}
+                      className="bg-transparent border-none focus:outline-none w-48 text-blue-900 dark:text-blue-100"
+                      aria-label="Edit queued message"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingQueuedId(m.id);
+                      }}
+                      title={m.content}
+                      className="truncate max-w-[40ch]"
+                    >
+                      {truncated}
+                    </button>
+                  )}
+                  {!isEditing && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingQueuedId(m.id);
+                      }}
+                      aria-label="Edit queued message"
+                      title="Edit"
+                      className="p-0.5 rounded hover:bg-blue-100 dark:hover:bg-blue-800/50"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onCancelQueued?.(m.id)}
+                    aria-label="Remove queued message"
+                    title="Remove"
+                    className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => onSendQueued?.()}
+              aria-label="Send all queued now"
+              title="Send all queued now (interrupts current turn)"
+              className="ml-auto px-3 py-1 rounded-full bg-blue-600 text-white text-sm hover:bg-blue-700 whitespace-nowrap"
+            >
+              Send all now
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="relative flex items-center bg-gray-100 dark:bg-[#2a2b2c] rounded-full px-4 py-2 shadow-sm focus-within:ring-2 focus-within:ring-blue-500">
           <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" title="Attach common file type">
             <FileUp size={20} />
@@ -332,14 +472,52 @@ export function Chat({ messages, onSendMessage, onOpenArtifact, gems, activeGemI
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={isLoading ? "Gemini is thinking..." : "Ask Gemini..."}
-            disabled={isLoading}
+            placeholder={isLoading ? "Gemini is thinking… (Enter to queue · click send to barge)" : "Ask Gemini…"}
+
             aria-label="Message Gemini"
-            className="flex-1 bg-transparent border-none focus:outline-none px-4 py-2 text-gray-900 dark:text-gray-100 disabled:opacity-50"
+            className="flex-1 bg-transparent border-none focus:outline-none px-4 py-2 text-gray-900 dark:text-gray-100"
           />
-          <button type="submit" disabled={(!input.trim() && !attachment && !contextBundle) || isLoading} aria-label="Send message" className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+          {/*
+            Send button: behavior branches by isLoading.
+            - Idle + content: type="submit" → handleSubmit → onSendMessage (normal send).
+            - Loading + queue: onClick → onSendQueued() + preventDefault (barge; abort + flush first queued).
+            - Loading + no queue: onClick → preventDefault (nothing to send; user should stop or type).
+            Disabled when: no content AND no attachment AND no contextBundle AND no queue.
+          */}
+          <button
+            type="submit"
+            disabled={!input.trim() && !attachment && !contextBundle && (queuedMessages?.length ?? 0) === 0}
+            onClick={(e) => {
+              if (isLoading) {
+                e.preventDefault();
+                if ((queuedMessages?.length ?? 0) > 0) {
+                  onSendQueued?.();
+                }
+              }
+            }}
+            aria-label={isLoading ? "Send now and stop current turn" : "Send message"}
+            title={isLoading ? "Send now and stop current turn" : "Send message"}
+            className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Send size={18} />
           </button>
+          {/*
+            Stop button: visible only while a turn is in flight. Click → onStop().
+            The AbortError catch arm in App.tsx handles the cleanup (clear
+            streaming message, setIsLoading false). This matches the
+            keyboard Cmd+. shortcut (Step 11).
+          */}
+          {isLoading && (
+            <button
+              type="button"
+              onClick={() => onStop?.()}
+              aria-label="Stop generation"
+              title="Stop generation (⌘.)"
+              className="ml-1 p-2 bg-red-600 text-white rounded-full hover:bg-red-700"
+            >
+              <span className="block w-[18px] h-[18px] bg-white" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%, 0 100%)' }} />
+            </button>
+          )}
         </form>
         <div className="text-center text-xs text-gray-500 mt-2">
           Gemini may display inaccurate info, including about people, so double-check its responses.

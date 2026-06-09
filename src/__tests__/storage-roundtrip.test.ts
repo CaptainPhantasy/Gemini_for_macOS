@@ -70,7 +70,7 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
 });
 
-import { storage } from '../lib/storage';
+import { storage } from '../lib/storage/storage';
 import type { Thread, AppSettings, PersonalIntelligence } from '../types';
 
 beforeEach(async () => {

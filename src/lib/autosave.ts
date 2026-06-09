@@ -1,4 +1,4 @@
-import { storage } from './storage';
+import { storage } from './storage/storage';
 import type { Thread, Artifact } from '../types';
 
 interface AppState {

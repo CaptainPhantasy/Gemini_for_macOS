@@ -2,7 +2,7 @@ import { act } from 'react-dom/test-utils';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { ScheduledActions } from '../components/ScheduledActions';
-import { storage } from '../lib/storage';
+import { storage } from '../lib/storage/storage';
 import type { ScheduledAction } from '../types';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

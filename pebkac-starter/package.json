@@ -1,0 +1,8 @@
+{
+  "name": "pebkac-starter",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/index.ts"
+  }
+}

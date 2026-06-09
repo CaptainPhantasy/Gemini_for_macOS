@@ -8,7 +8,7 @@ import { GemsRegistry } from './components/GemsRegistry';
 import { ScheduledActions } from './components/ScheduledActions';
 import { ArtifactLibrary } from './components/ArtifactLibrary';
 import { Thread, Message, Artifact, AppSettings, BudgetConfig, DEFAULT_BUDGET_CONFIG } from './types';
-import { storage } from './lib/storage';
+import { storage } from './lib/storage/storage';
 import { mcpClient } from './lib/mcp';
 import { buildDirectoryLockPrompt } from './lib/directory-lock';
 import {
@@ -22,7 +22,7 @@ import {
   formatLocalToolUnavailableMessage,
 } from './lib/agent-tools';
 import { shouldAutoApproveToolCall, type ToolAction } from './lib/autonomy';
-import { autoSyncArtifact } from './lib/drive-sync';
+import { autoSyncArtifact } from './lib/storage/drive-sync';
 import { buildImportedWorkspaceContext } from './lib/workspace-context';
 import { v4 as uuidv4 } from 'uuid';
 import { getAI } from './lib/api-config';
@@ -42,9 +42,9 @@ import { setupAutosave } from "./lib/autosave";
 import { windowState } from "./lib/windowState";
 import { costLedger, PRICING } from "./lib/cost-ledger";
 import { logger } from "./lib/logger";
-import { generateWithFailoverStream } from './lib/generation-wrapper';
-import { withGeminiContextCache } from './lib/context-cache';
-import { selectModel } from './lib/model-orchestrator';
+import { generateWithFailoverStream } from './lib/generation/generation-wrapper';
+import { withGeminiContextCache } from './lib/generation/context-cache';
+import { selectModel } from './lib/model/model-orchestrator';
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { exportThreadAsMarkdown } from "./lib/thread-export";
@@ -68,8 +68,12 @@ export default function App() {
   const [showLiveMode, setShowLiveMode] = useState(false);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // Messages queued while a turn is in flight. The user can type and press
+  // Enter to enqueue, or click the send button again to barge (flush
+  // immediately, aborting the current turn). Queue is session-local — see
+  // docs/plans/chat-barge-and-queue.md §2.2 / Step 10 (no persistence).
+  const [queuedMessages, setQueuedMessages] = useState<Array<{ id: string; content: string }>>([]);
   const [settings, setSettings] = useState<AppSettings>(storage.getSettings());
-
   // Shell vertical is viewport-derived by default, with explicit route overrides for
   // /gemini/mobile, /gemini/tablet, and /gemini/desktop. The mode follows the
   // vertical so each target gets a separate composition instead of a scaled shell.
@@ -90,7 +94,11 @@ export default function App() {
   const previousShellModeRef = useRef<ShellMode>(shellMode);
   const resizeFrameRef = useRef<number | null>(null);
   const lastOverlayTriggerRef = useRef<HTMLElement | null>(null);
-
+  // AbortController for the in-flight generation. Created at the top of
+  // handleSendMessage, cleared in the finally. handleStop() and handleBargeNow()
+  // call .abort() on this to cancel the current turn. See
+  // docs/plans/chat-barge-and-queue.md §2.1 for the abort wiring.
+  const abortRef = useRef<AbortController | null>(null);
   const rememberOverlayTrigger = () => {
     const activeElement = document.activeElement;
     lastOverlayTriggerRef.current = activeElement instanceof HTMLElement ? activeElement : null;
@@ -444,6 +452,11 @@ export default function App() {
     { label: "Toggle Theme", icon: theme === "dark" ? <Sun size={16} /> : <Moon size={16} />, shortcut: "Cmd+T", action: () => handleUpdateSettings({...settings, theme: theme === "dark" ? "light" : "dark"}) },
   ];
 
+  // Escape-to-enqueue-while-loading is implemented in Chat.tsx (Step 11)
+  // because the input element lives there and the App-level scope cannot
+  // reach the input ref. The keyboard hook below is reserved for App-scoped
+  // shortcuts (new thread, search, settings, etc.) plus Cmd+. for stop.
+
   const defaultShortcuts: Record<string, () => void> = {
     "cmd+n": handleNewThread,
     "cmd+k": () => openPanel('search'),
@@ -452,6 +465,8 @@ export default function App() {
     "cmd+,": () => openPanel('settings'),
     "cmd+t": () => handleUpdateSettings({...settings, theme: theme === "dark" ? "light" : "dark"}),
     "cmd+l": () => openPanel('liveMode'),
+    // Chat barge-in: Cmd+. stops the in-flight generation.
+    "cmd+.": () => handleStop(),
     "f1": () => openPanel('help'),
     // Feature 18: Undo/Redo — browser handles these natively for text inputs,
     // but we add explicit bindings so the shortcut editor can display them.
@@ -489,7 +504,10 @@ export default function App() {
       setActiveThreadId(threadForSend.id);
     }
     setIsLoading(true);
-
+    // Create the AbortController for this turn. handleStop() and the
+    // barge path will call .abort() on this to cancel the in-flight
+    // generation. The controller is cleared in the finally block below.
+    abortRef.current = new AbortController();
     const userMsg: Message = {
       id: uuidv4(),
       role: 'user',
@@ -665,6 +683,11 @@ export default function App() {
           fallbackModel: settings.models?.textFallback,
           contents: workingContents as any,
           config: generationConfig,
+          // Propagate the turn-level AbortController to the streaming wrapper
+          // (and from there to the SDK as `abortSignal`). The wrapper also
+          // checks signal.aborted between chunks. See
+          // docs/plans/chat-barge-and-queue.md §2.1.
+          signal: abortRef.current?.signal,
           onChunk: (chunk) => {
             responseText = chunk.aggregatedText;
             upsertStreamingModelMessage(chunk.aggregatedText);
@@ -739,6 +762,11 @@ export default function App() {
 
           // Execute each tool call and feed results back
           for (const fc of functionCalls) {
+            // Honor an abort by skipping remaining tool calls in this batch.
+            // The current tool's result (if any) is preserved; we just stop
+            // launching new ones. The outer generateWithFailoverStream will
+            // re-throw on the next signal check.
+            if (abortRef.current?.signal.aborted) break;
             try {
               const toolResult = await mcpClient.executeTool(fc.name, fc.args);
               const funcResponse = buildFunctionResponse(fc.name, toolResult, fc.id);
@@ -870,14 +898,72 @@ export default function App() {
         openArtifactInShell(detectedArtifacts[0]);
       }
     } catch (error) {
-      clearStreamingModelMessage();
-      console.error('Error generating content:', error);
-      alert(error instanceof Error ? error.message : String(error));
+      // AbortError is the expected exit path when the user clicks Stop or
+      // barges. Treat it as a silent cancellation: drop the partial
+      // streaming message and skip the user-facing alert. All other errors
+      // are surfaced as before.
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        clearStreamingModelMessage();
+        logger.warn('[abort] handleSendMessage cancelled by user');
+      } else {
+        clearStreamingModelMessage();
+        console.error('Error generating content:', error);
+        alert(error instanceof Error ? error.message : String(error));
+      }
     } finally {
       setIsLoading(false);
+      // Always clear the ref so a subsequent turn can create a fresh controller.
+      abortRef.current = null;
     }
   };
-
+  // Stop the in-flight generation. Wired to the Chat stop button (Step 6)
+  // and to the Cmd+. keyboard shortcut (Step 11). Idempotent: a no-op when
+  // no controller is in flight. The AbortError catch arm above handles
+  // the cleanup (clearStreamingModelMessage, setIsLoading false).
+  const handleStop = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+  };
+  // Queue a new message without sending it. Called from Chat when the user
+  // presses Enter while a turn is in flight. The form clears its own input
+  // — we only own the queue state.
+  const handleEnqueue = (content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    setQueuedMessages(prev => [...prev, { id: uuidv4(), content: trimmed }]);
+  };
+  // Remove a single queued message. Called when the user clicks the × on
+  // a pill in the queue strip.
+  const handleCancelQueued = (id: string) => {
+    setQueuedMessages(prev => prev.filter(m => m.id !== id));
+  };
+  // Replace a queued message's content. Called from the pill's inline editor
+  // (Enter to save, Escape to cancel — those are owned by Chat.tsx).
+  const handleEditQueued = (id: string, newContent: string) => {
+    const trimmed = newContent.trim();
+    if (!trimmed) return;
+    setQueuedMessages(prev => prev.map(m => (m.id === id ? { ...m, content: trimmed } : m)));
+  };
+  // Barge: flush the first queued message immediately. Aborts the current
+  // turn (the abort will be picked up by the wrapper in the next iteration
+  // or by the tool-loop check) and re-enters handleSendMessage with the
+  // barge system note prepended to the user content. The note tells the
+  // model this was a mid-flight interruption. The other queued messages
+  // stay queued — only the first one fires.
+  //
+  // See docs/plans/chat-barge-and-queue.md §2.4 (barge system note) and
+  // §2.2 (barge semantics: send + abort the current turn).
+  const handleBargeNow = async () => {
+    const next = queuedMessages[0];
+    if (!next) return;
+    setQueuedMessages(prev => prev.slice(1));
+    abortRef.current?.abort();
+    const BARGE_NOTE =
+      '[User pressed send mid-turn. The previous model turn was cancelled. ' +
+ 'Please incorporate this message into your plan.]\n\n';
+    await handleSendMessage(BARGE_NOTE + next.content);
+  };
   // Feature 10: Regenerate last model response
   const handleRegenerate = async () => {
     if (!activeThread) return;
@@ -1060,6 +1146,13 @@ export default function App() {
         isLoading={isLoading}
         onRegenerate={handleRegenerate}
         onEditMessage={handleEditMessage}
+        // Chat barge-in + queue (docs/plans/chat-barge-and-queue.md)
+        onStop={handleStop}
+        onEnqueue={handleEnqueue}
+        onSendQueued={handleBargeNow}
+        onCancelQueued={handleCancelQueued}
+        onEditQueued={handleEditQueued}
+        queuedMessages={queuedMessages}
       />
       {vertical === 'mobile' && renderMobileActionDock()}
     </div>

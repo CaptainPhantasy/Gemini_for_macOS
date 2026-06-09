@@ -93,6 +93,14 @@ vendor/
 tmp/
 
 # ─── MCP config with live tokens (NEVER commit) ───────────
+# ─── Local harness / orchestrator state (may embed credentials) ───
+# .harness/vault/ holds real secrets (see .harness/vault/config.yaml)
+# .harness/checkpoints/*.json echoes prior reads of .env and may surface
+# comments like "# HIGHLY SENSITIVE - DO NOT COMMIT".
+# .harness/audit.log and *.audit.log may echo redacted secret context.
+.harness/
+.omp/
+*.audit.log
 .mcp.json
 
 # ─── Agent/orchestration state (local-only) ──────────────

@@ -6,7 +6,7 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
-import { storage } from './storage';
+import { storage } from './storage/storage';
 
 let _aiInstance: GoogleGenAI | null = null;
 let _currentApiKey: string | null = null;

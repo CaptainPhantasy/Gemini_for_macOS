@@ -5,7 +5,7 @@ import {
   fetchAvailableGeminiModels,
   getModelOptionsForCapability,
   getRecommendedModelChanges,
-} from '../lib/model-refresh';
+} from '../lib/model/model-refresh';
 
 const fetchedAt = '2026-05-24T12:00:00.000Z';
 

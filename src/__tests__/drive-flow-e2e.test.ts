@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
-import { extractPickedFiles, importPickedDriveFiles } from '../lib/google-picker';
+import { extractPickedFiles, importPickedDriveFiles } from '../lib/integration/google-picker';
 import { buildImportedWorkspaceContext } from '../lib/workspace-context';
 import type { Artifact } from '../types';
-import type { ImportResult } from '../lib/integrations';
+import type { ImportResult } from '../lib/integration/integrations';
 
 // Mirrors Integrations.tsx persistAsArtifact: ImportResult -> Artifact.
 function importResultToArtifact(result: ImportResult, fallback: string): Artifact {

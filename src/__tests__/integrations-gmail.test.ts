@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { gmailMessageToMarkdown, integrations, type GmailMessageResponse } from '../lib/integrations';
+import { gmailMessageToMarkdown, integrations, type GmailMessageResponse } from '../lib/integration/integrations';
 
 const gmailMessage: GmailMessageResponse = {
   id: 'msg-1',

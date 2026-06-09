@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { extractPickedFiles, importPickedDriveFiles } from '../lib/google-picker';
+import { extractPickedFiles, importPickedDriveFiles } from '../lib/integration/google-picker';
 
 describe('Google Drive Picker flow', () => {
   test('extractPickedFiles maps picker docs to id+name and skips blank ids', () => {

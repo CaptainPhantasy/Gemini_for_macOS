@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Search as SearchIcon, X, MessageSquare, FileText } from 'lucide-react';
-import { storage } from '../lib/storage';
+import { storage } from '../lib/storage/storage';
 import type { Artifact } from '../types';
 
 const SEARCH_DEBOUNCE_MS = 150;

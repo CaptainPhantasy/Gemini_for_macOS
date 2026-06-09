@@ -324,6 +324,8 @@ curl 'http://localhost:13001/api/tools'
 
 ---
 
+See [CHAT-ABORT.md](./CHAT-ABORT.md) for the abort-aware streaming generation contract (Chat barge-in and queue features).
+
 ## Changelog
 
 ### v1.0.0 (2026-04-18)

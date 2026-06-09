@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="absolute-void" data-density="comfortable">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GEMINI for macOS — Configuration Manager</title>
+<link rel="stylesheet" href="theme-system.css">
+<style>
+/* ── Layout glue — sizes & structure only, all colors from theme tokens ─── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;border-color:var(--line)}
+:root{--radius:8px;--sidebar-w:380px;--header-h:52px}
+html,body{height:100%}
+body{font-family:var(--font-sans);font-size:14px;line-height:1.5;color:var(--text);background:var(--black);overflow:hidden}
+button{cursor:pointer;font-family:inherit;font-size:inherit;border:none;border-radius:var(--radius);transition:all var(--t-fast) var(--easing)}
+button:disabled{opacity:.45;cursor:not-allowed}
+input,textarea,select{font-family:inherit;font-size:inherit;border:1px solid var(--line);border-radius:var(--radius);outline:none;color:var(--text);background:rgba(0,0,0,.4);transition:border-color var(--t-fast) var(--easing)}
+input:focus,textarea:focus,select:focus{border-color:var(--accent-rim);box-shadow:0 0 0 1px var(--accent-soft),0 0 18px var(--accent-dim)}
+textarea{resize:vertical}
+code{font-family:var(--font-mono);font-size:13px;background:var(--accent-dim);color:var(--accent);padding:1px 6px;border-radius:4px}
+pre{font-family:var(--font-mono);font-size:13px;line-height:1.6;overflow:auto;white-space:pre-wrap;word-break:break-word;background:var(--accent-dim);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px 14px}
+/* ── Layout ───────────────────────────────────────────────── */
+.app{display:flex;flex-direction:column;height:100vh}
+.header{height:var(--header-w);min-height:var(--header-w);display:flex;align-items:center;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--line);gap:12px;z-index:10}
+.header-logo{display:flex;align-items:center;gap:10px;font-weight:500;font-size:16px;color:var(--text);white-space:nowrap}
+.header-logo svg{width:20px;height:20px}
+.header-logo .badge{font-size:11px;background:var(--accent-dim);color:var(--accent);padding:2px 10px;border-radius:10px;font-weight:500}
+.header-spacer{flex:1}
+.header-actions{display:flex;gap:8px}
+/* ── Sidebar (Chat) ────────────────────────────────────────── */
+.sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--panel)}
+.chat-header{padding:14px 16px;border-bottom:1px solid var(--line);font-weight:500;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+.chat-messages{flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:100%;padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.6}
+.msg.system{background:var(--accent-dim);color:var(--text);border:1px solid var(--accent-soft);align-self:flex-start}
+.msg.user{background:var(--accent-soft);color:var(--accent);align-self:flex-end;border-bottom-right-radius:4px}
+.msg.agent{background:var(--glass);color:var(--text);border:1px solid var(--line);align-self:flex-start;border-bottom-left-radius:4px}
+.msg.agent pre{background:rgba(0,0,0,.3);font-size:12px;max-height:240px;overflow:auto;margin:6px 0}
+.msg-label{font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:500}
+.chat-input-wrap{padding:12px 16px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.chat-input-row{display:flex;gap:8px}
+.chat-input-row textarea{flex:1;padding:10px 14px;border-radius:24px;font-size:13px;line-height:1.5;min-height:42px;max-height:120px;resize:none}
+.chat-input-row button{padding:10px 20px;border-radius:24px;font-weight:500;white-space:nowrap}
+.chat-status{font-size:11px;color:var(--dim);display:flex;gap:8px;align-items:center}
+.chat-status .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.chat-status .dot.ok{background:var(--green)}
+.chat-status .dot.err{background:var(--red)}
+.chat-status .dot.idle{background:var(--yellow)}
+/* ── Main Panel (JSON Editor) ──────────────────────────────── */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel)}
+.editor-header{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--line)}
+.editor-header-left{display:flex;align-items:center;gap:10px}
+.editor-header-left h2{font-size:15px;font-weight:500;color:var(--text)}
+.editor-header-right{display:flex;gap:8px;align-items:center}
+.file-badge{font-size:11px;color:var(--dim);background:var(--glass-soft);padding:3px 10px;border-radius:12px;border:1px solid var(--line-soft)}
+.editor-body{flex:1;overflow:auto;padding:16px 20px}
+.editor-body textarea{width:100%;height:100%;min-height:500px;border:none;outline:none;font-family:var(--font-mono);font-size:13px;line-height:1.6;resize:none;tab-size:2;background:transparent;color:var(--text)}
+.editor-body textarea:focus{box-shadow:none}
+/* ── Overlay Modal ─────────────────────────────────────────── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:100;animation:gt-fade-in var(--t-fast) var(--easing)}
+.modal{background:var(--panel-strong);backdrop-filter:blur(48px);-webkit-backdrop-filter:blur(48px);border:1px solid var(--line);border-radius:16px;width:540px;max-width:92vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.6);animation:gt-slide-up var(--t-med) var(--easing)}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px 0}
+.modal-header h2{font-size:18px;font-weight:500;color:var(--text)}
+.modal-close{background:none;color:var(--dim);padding:4px;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center}
+.modal-close:hover{background:var(--glass);color:var(--text)}
+.modal-body{padding:20px 24px;overflow-y:auto;flex:1}
+.modal-footer{padding:16px 24px 20px;display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--line)}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;margin-bottom:4px;font-size:13px;font-weight:500;color:var(--text-dim)}
+.form-group input,.form-group select{width:100%;padding:9px 12px}
+.form-hint{font-size:11px;color:var(--dim);margin-top:4px}
+/* ── Toast ──────────────────────────────────────────────────── */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--panel-strong);color:var(--text);padding:12px 20px;border-radius:8px;font-size:13px;z-index:200;border:1px solid var(--line);box-shadow:0 4px 16px rgba(0,0,0,.4);animation:gt-slide-up var(--t-fast) var(--easing);max-width:420px}
+.toast.success{border-color:var(--green)}
+.toast.error{border-color:var(--red)}
+.toast.info{border-color:var(--accent-rim)}
+/* ── Empty state ───────────────────────────────────────────── */
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--dim);text-align:center;padding:40px;gap:12px}
+.empty-state svg{width:48px;height:48px;opacity:.3;color:var(--muted)}
+.empty-state h3{font-size:16px;font-weight:500;color:var(--text)}
+.empty-state p{font-size:13px;max-width:360px}
+/* ── Theme picker in settings ──────────────────────────────── */
+.theme-preview{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--glass);border-radius:6px;border:1px solid var(--line-soft)}
+.theme-swatch{width:16px;height:16px;border-radius:4px;border:1px solid var(--line)}
+.theme-swatch.void{background:#000;border-color:var(--accent-rim)}
+.theme-swatch.dracula{background:#282a36}
+.theme-swatch.tokyo{background:#1a1b26}
+.theme-swatch.gruvbox{background:#1d2021}
+.theme-swatch.nord{background:#2e3440}
+.theme-swatch.matrix{background:#000;border-color:var(--green)}
+.theme-swatch.catppuccin{background:#1e1e2e}
+/* ── Responsive ────────────────────────────────────────────── */
+@media(max-width:860px){.body{flex-direction:column}.sidebar{width:100%;min-width:0;max-height:50vh;border-right:none;border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+<!-- Header -->
+<header class="header">
+  <div class="header-logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 2a4 4 0 014 4c0 2-2 3-2 5h-4c0-2-2-3-2-5a4 4 0 014-4z"/><path d="M10 15h4v3a2 2 0 01-2 2h0a2 2 0 01-2-2v-3z"/><path d="M12 2v3"/><path d="M8 22h8"/>
+    </svg>
+    <span>GEMINI for macOS</span>
+    <span class="badge">Configuration Manager</span>
+  </div>
+  <div class="header-spacer"></div>
+  <div class="header-actions" style="align-items:center;gap:8px">
+    <select id="themeHeaderPicker" style="font-size:12px;padding:5px 8px;border-radius:6px;background:var(--glass);border:1px solid var(--line);color:var(--text-dim);width:auto;cursor:pointer"></select>
+    <button onclick="importJSON()" style="background:var(--glass);color:var(--text-dim);border:1px solid var(--line);padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500">Import</button>
+    <button onclick="exportJSON()" style="background:var(--glass);color:var(--text-dim);border:1px solid var(--line);padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500">Export</button>
+    <button onclick="showSettings()" style="background:var(--glass);color:var(--text-dim);border:1px solid var(--line);padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500">Settings</button>
+    <button onclick="sendMessage()" id="sendBtn" disabled style="background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-rim);padding:7px 14px;border-radius:8px;font-size:13px;font-weight:500">Send</button>
+  </div>
+</header>
+
+<!-- Body -->
+<div class="body">
+  <aside class="sidebar" id="sidebar">
+    <div class="chat-header">Conversation</div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="msg system">
+        <div class="msg-label">GEMINI Config Agent</div>
+        Load your backup JSON using <strong>Import</strong>, then describe what you want to change. I will validate every edit and discuss conflicts before applying them.
+      </div>
+    </div>
+    <div class="chat-input-wrap">
+      <div class="chat-input-row">
+        <textarea id="chatInput" rows="1" placeholder="Describe your change..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}"></textarea>
+        <button onclick="sendMessage()" id="sendBtn2" style="background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-rim);padding:10px 20px;border-radius:24px;font-weight:500">Send</button>
+      </div>
+      <div class="chat-status" id="chatStatus">
+        <span class="dot idle" id="statusDot"></span>
+        <span id="statusText">Not connected — configure API key in Settings</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="editor-header">
+      <div class="editor-header-left">
+        <h2>Backup JSON</h2>
+        <span class="file-badge" id="fileBadge">gemini-backup.json</span>
+      </div>
+      <div class="editor-header-right">
+        <button onclick="formatJSON()" style="background:var(--glass);color:var(--text-dim);border:1px solid var(--line);padding:5px 10px;border-radius:6px;font-size:12px">Format</button>
+        <button onclick="validateJSON()" style="background:var(--glass);color:var(--text-dim);border:1px solid var(--line);padding:5px 10px;border-radius:6px;font-size:12px">Validate</button>
+        <span id="sizeBadge" class="file-badge" style="display:none"></span>
+      </div>
+    </div>
+    <div class="editor-body" id="editorBody">
+      <div class="empty-state" id="emptyState">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <h3>No JSON loaded</h3>
+        <p>Import a Gemini for macOS backup JSON file to begin editing with AI assistance.</p>
+        <button onclick="importJSON()" style="margin-top:8px;background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-rim);padding:8px 18px;border-radius:8px;font-weight:500">Import Backup JSON</button>
+      </div>
+      <textarea id="jsonEditor" style="display:none" spellcheck="false"></textarea>
+    </div>
+  </main>
+</div>
+</div>
+
+<!-- Settings Modal -->
+<div class="overlay" id="settingsOverlay" style="display:none" onclick="if(event.target===this)closeSettings()" role="dialog" aria-modal="true">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h2>API Configuration &amp; Theme</h2>
+      <button class="modal-close" onclick="closeSettings()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="themePicker">Display Theme</label>
+        <select id="themePicker" onchange="onThemePickerChange()"></select>
+        <div class="form-hint" id="themeHint"></div>
+      </div>
+      <div class="form-group">
+        <label for="densityPicker">Density</label>
+        <select id="densityPicker" onchange="onDensityPickerChange()">
+          <option value="comfortable">Comfortable</option>
+          <option value="compact">Compact</option>
+          <option value="spacious">Spacious</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="apiProvider">API Provider</label>
+        <select id="apiProvider" onchange="toggleEndpoint()">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="openai-compatible">OpenAI-Compatible</option>
+        </select>
+      </div>
+      <div class="form-group" id="endpointGroup" style="display:none">
+        <label for="apiEndpoint">Custom Endpoint URL</label>
+        <input type="url" id="apiEndpoint" placeholder="https://your-endpoint.com/v1">
+        <div class="form-hint">Full base URL including /v1 path.</div>
+      </div>
+      <div class="form-group">
+        <label for="apiModel">Model</label>
+        <input type="text" id="apiModel" placeholder="gpt-4o">
+        <div class="form-hint">Model identifier used by your provider.</div>
+      </div>
+      <div class="form-group">
+        <label for="apiKey">API Key</label>
+        <input type="password" id="apiKey" placeholder="sk-... or leave blank">
+        <div class="form-hint">Stored in localStorage. Never shared.</div>
+      </div>
+      <div class="form-group">
+        <label for="maxTokens">Max Response Tokens</label>
+        <input type="number" id="maxTokens" value="8192" min="256" max="65536">
+      </div>
+      <div class="form-group">
+        <label for="systemPromptFile">System Prompt</label>
+        <textarea id="systemPromptFile" rows="8" style="width:100%;padding:9px 12px;font-size:13px;font-family:var(--font-mono);background:rgba(0,0,0,.4);color:var(--text);border:1px solid var(--line);border-radius:8px;resize:vertical"></textarea>
+        <div class="form-hint">The agent system prompt sent with every request. Edit with caution.</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="resetSettings()" style="background:var(--glass);color:var(--text-dim);border:1px solid var(--line);padding:8px 16px;border-radius:8px;font-weight:500">Reset to Defaults</button>
+      <button onclick="saveSettings()" style="background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-rim);padding:8px 16px;border-radius:8px;font-weight:500">Save &amp; Connect</button>
+    </div>
+  </div>
+</div>
+
+<script src="theme-engine.js"></script>
+<script>
+
+// ── Theme Engine ──────────────────────────────────────────────
+const themeEngine = new ThemeEngine();
+themeEngine.apply();
+
+// Wire theme picker in header
+const headerPicker = document.getElementById('themeHeaderPicker');
+bindThemePicker(headerPicker, themeEngine);
+
+// Wire theme picker in settings modal
+const modalPicker = document.getElementById('themePicker');
+bindThemePicker(modalPicker, themeEngine);
+document.getElementById('themeHint').textContent =
+  themeEngine.listThemes().find(t => t.id === themeEngine.getTheme())?.description || '';
+
+// Wire density picker
+document.getElementById('densityPicker').value = themeEngine.getDensity();
+window.onDensityPickerChange = () => {
+  themeEngine.setDensity(document.getElementById('densityPicker').value);
+};
+
+// Sync header picker when theme changes (settings modal may also change it)
+window.onThemePickerChange = () => { /* modal picker auto-handled by bindThemePicker */ };
+
+// ── State ────────────────────────────────────────────────────
+const STATE = {
+  apiKey: '',
+  apiProvider: 'openai',
+  apiEndpoint: '',
+  apiModel: 'gpt-4o',
+  maxTokens: 8192,
+  systemPrompt: '',
+  backupJSON: null,
+  originalJSON: null,
+  messages: [],
+  isProcessing: false,
+};
+
+const DEFAULT_SYSTEM_PROMPT = `# GEMINI for macOS Configuration Manager
+
+You are a configuration specialist for the Gemini for macOS desktop application.
+The user provides a JSON backup file and describes changes in natural language.
+You update the correct portions of the JSON, detect conflicts, and discuss
+issues before applying edits.
+
+## Core Rules
+1. You receive the FULL current JSON at the start of the conversation.
+2. When the user requests a change, you MUST output the COMPLETE edited JSON
+   inside a \`\`\`json code block — never a diff or partial snippet.
+3. Before applying any edit, scan the FULL JSON for conflicts:
+   - If a gem is deleted, check for threads referencing its id.
+   - If a model ID is changed, verify it exists in availableModelCatalog.
+   - If an MCP server's url/command changes, check for duplicate ids.
+   - If personalIntelligence.instructions is edited, the localStorage
+     double-encoded copy MUST be updated identically.
+4. If a conflict exists, EXPLAIN IT to the user in plain language and ask
+   how to proceed before editing.
+5. Preserve every field you do not need to change. Update exportedAt to
+   the current ISO-8601 timestamp. Keep version:2.
+6. Never invent fields. Never strip fields the user's JSON contains.
+
+## JSON Schema (top-level)
+{
+  "version": 2,
+  "exportedAt": "ISO-8601",
+  "localStorage": {
+    "gemini-for-macos:integrations:connections": "...",
+    "gemini-for-macos:personalIntelligence": "...",
+    "gemini-for-macos:oauth-key": "...",
+    "gemini-window-state": "...",
+    "gemini-for-macos:settings": "..."
+  },
+  "indexedDB": {
+    "threads": [{ "id","title","createdAt","updatedAt","gemId","messages":[{ "id","role","content","timestamp","type","artifactData" }] }],
+    "gems": [{ "id","name","systemInstruction","createdAt","updatedAt" }],
+    "scheduledActions": [{ "id","title","prompt","schedule","enabled" }],
+    "artifacts": [{ "id","name","type","content","importedAt" }]
+  },
+  "settings": {
+    "theme": "gemini|dark|light",
+    "autonomyMode": "safe|ask|auto-accept|yolo",
+    "directoryLock": { "enabled": bool, "rootPath": "string" },
+    "googleDriveEnabled": bool,
+    "notebookLmEnabled": bool,
+    "searchEnabled": bool,
+    "mcpServers": [{ "id","name","type":"websocket|stdio","enabled","url"?,"command"?,"args"? }],
+    "geminiApiKey": "string",
+    "gcpOAuthClientId": "string",
+    "gcpOAuthClientSecret": "string",
+    "autoSyncArtifacts": bool,
+    "models": { "text","textFallback","imagePro","imageFlash","video","music","tts","liveAudio" },
+    "thinkingBudgets": { "text": number, "vision": number },
+    "liveMode": { "voiceTranscriptionEnabled": bool, "cameraTranscriptionEnabled": bool, "screenTranscriptionEnabled": bool },
+    "cost": { "gcpProjectId","billingAccountId","dailyThresholdUsd","monthlyThresholdUsd","showInSidebar" },
+    "availableModelCatalog": { "fetchedAt","source","endpoint","rawCount","models":[{ "id","name","displayName","version","supportedGenerationMethods","inputTokenLimit","outputTokenLimit" }] }
+  },
+  "personalIntelligence": {
+    "preferences": "string",
+    "instructions": "string"
+  }
+}
+
+## Sync Rule
+The top-level personalIntelligence.instructions and the double-encoded
+localStorage["gemini-for-macos:personalIntelligence"].instructions value
+MUST be identical. If you edit one, update both.
+
+## Response Format
+- For chat/conversation: respond naturally, ask clarifying questions.
+- When ready to produce an edit: output the COMPLETE JSON inside
+  \`\`\`json ... \`\`\` and note the changes you made.
+- Always lead with the conclusion, then evidence, then the JSON.`;
+
+// ── DOM refs ────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const chatMessages = $('chatMessages');
+const chatInput = $('chatInput');
+const jsonEditor = $('jsonEditor');
+const emptyState = $('emptyState');
+const statusDot = $('statusDot');
+const statusText = $('statusText');
+const sendBtn = $('sendBtn');
+const sendBtn2 = $('sendBtn2');
+const fileBadge = $('fileBadge');
+const sizeBadge = $('sizeBadge');
+
+// ── Load state from localStorage ────────────────────────────
+function loadState(){
+  try{
+    const saved = localStorage.getItem('gemini-config-mgr:state');
+    if(saved){
+      const parsed = JSON.parse(saved);
+      Object.assign(STATE, parsed);
+    }
+    STATE.systemPrompt = STATE.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    $('apiProvider').value = STATE.apiProvider;
+    $('apiEndpoint').value = STATE.apiEndpoint || '';
+    $('apiModel').value = STATE.apiModel;
+    $('apiKey').value = STATE.apiKey;
+    $('maxTokens').value = STATE.maxTokens;
+    $('systemPromptFile').value = STATE.systemPrompt;
+    toggleEndpoint();
+    updateConnectionStatus(false);
+  }catch(e){ console.warn('State load failed', e); }
+}
+
+function saveState(){
+  try{
+    STATE.apiProvider = $('apiProvider').value;
+    STATE.apiEndpoint = $('apiEndpoint').value;
+    STATE.apiModel = $('apiModel').value;
+    STATE.apiKey = $('apiKey').value;
+    STATE.maxTokens = parseInt($('maxTokens').value) || 8192;
+    STATE.systemPrompt = $('systemPromptFile').value;
+    localStorage.setItem('gemini-config-mgr:state', JSON.stringify({
+      apiKey: STATE.apiKey,
+      apiProvider: STATE.apiProvider,
+      apiEndpoint: STATE.apiEndpoint,
+      apiModel: STATE.apiModel,
+      maxTokens: STATE.maxTokens,
+      systemPrompt: STATE.systemPrompt,
+    }));
+  }catch(e){ console.warn('State save failed', e); }
+}
+
+function updateConnectionStatus(connected){
+  statusDot.className = 'dot ' + (connected ? 'ok' : 'idle');
+  statusText.textContent = connected
+    ? 'Connected — ' + STATE.apiProvider + ' / ' + STATE.apiModel
+    : 'Not connected — configure API key in Settings';
+  sendBtn.disabled = !connected || !STATE.backupJSON;
+  sendBtn2.disabled = !connected || !STATE.backupJSON;
+}
+
+// ── API Call ─────────────────────────────────────────────────
+async function callAPI(messages){
+  const provider = STATE.apiProvider;
+  const key = STATE.apiKey;
+  if(!key) throw new Error('API key not configured');
+
+  if(provider === 'anthropic'){
+    const body = {
+      model: STATE.apiModel || 'claude-3-5-sonnet-20241022',
+      max_tokens: STATE.maxTokens,
+      system: STATE.systemPrompt,
+      messages: messages.map(m => ({ role: m.role === 'agent' ? 'assistant' : m.role, content: m.content })),
+    };
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01' },
+      body: JSON.stringify(body),
+    });
+    if(!res.ok){ const e=await res.text(); throw new Error('API '+res.status+': '+e.slice(0,200)); }
+    const data = await res.json();
+    return data.content?.[0]?.text || '';
+  }
+
+  const endpoint = provider === 'openai-compatible'
+    ? (STATE.apiEndpoint || 'https://api.openai.com/v1').replace(/\/$/,'') + '/chat/completions'
+    : 'https://api.openai.com/v1/chat/completions';
+  const body = {
+    model: STATE.apiModel || 'gpt-4o',
+    max_tokens: STATE.maxTokens,
+    messages: [
+      { role:'system', content: STATE.systemPrompt },
+      ...messages.map(m => ({ role: m.role === 'agent' ? 'assistant' : m.role, content: m.content })),
+    ],
+  };
+  const res = await fetch(endpoint, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+key },
+    body: JSON.stringify(body),
+  });
+  if(!res.ok){ const e=await res.text(); throw new Error('API '+res.status+': '+e.slice(0,200)); }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+// ── Send message ─────────────────────────────────────────────
+async function sendMessage(){
+  const text = chatInput.value.trim();
+  if(!text || STATE.isProcessing || !STATE.apiKey || !STATE.backupJSON) return;
+  chatInput.value = '';
+  STATE.isProcessing = true;
+  statusDot.className = 'dot ok';
+  statusText.textContent = 'Processing...';
+
+  addMessage('user', text);
+
+  const currentJSON = JSON.stringify(STATE.backupJSON, null, 2);
+  const contextMsg = 'The user requests: "' + text + '"\n\nCurrent JSON:\n```json\n' + currentJSON + '\n```';
+  const apiMessages = [
+    { role:'user', content: contextMsg },
+  ];
+
+  try{
+    const reply = await callAPI(apiMessages);
+    addMessage('agent', reply);
+
+    const jsonMatch = reply.match(/```json\n?([\s\S]*?)```/);
+    if(jsonMatch){
+      try{
+        const parsed = JSON.parse(jsonMatch[1].trim());
+        STATE.backupJSON = parsed;
+        renderJSON();
+        fileBadge.textContent = 'gemini-backup.json (edited)';
+        showToast('JSON updated successfully','success');
+      }catch(e){
+        showToast('Found JSON block but could not parse it — check Format and validate.','error');
+      }
+    }
+  }catch(e){
+    addMessage('agent', 'Error: ' + e.message);
+    showToast('API error: ' + e.message, 'error');
+  }finally{
+    STATE.isProcessing = false;
+    updateConnectionStatus(true);
+  }
+}
+
+function addMessage(role, content){
+  const msg = { role, content, id: Date.now() };
+  STATE.messages.push(msg);
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const label = document.createElement('div');
+  label.className = 'msg-label';
+  label.textContent = role === 'user' ? 'You' : role === 'agent' ? 'GEMINI Config Agent' : 'System';
+  div.appendChild(label);
+  if(content.includes('```')){
+    const parts = content.split(/(```[\s\S]*?```)/g);
+    parts.forEach(part => {
+      if(part.startsWith('```')){
+        const inner = part.replace(/^```\w*\n?/,'').replace(/```$/,'').trim();
+        const pre = document.createElement('pre');
+        pre.textContent = inner;
+        div.appendChild(pre);
+      }else if(part.trim()){
+        const p = document.createElement('span');
+        p.textContent = part;
+        div.appendChild(p);
+      }
+    });
+  }else{
+    const p = document.createElement('span');
+    p.textContent = content;
+    div.appendChild(p);
+  }
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function renderJSON(){
+  if(!STATE.backupJSON){
+    emptyState.style.display = 'flex';
+    jsonEditor.style.display = 'none';
+    return;
+  }
+  emptyState.style.display = 'none';
+  jsonEditor.style.display = 'block';
+  jsonEditor.value = JSON.stringify(STATE.backupJSON, null, 2);
+  const size = new Blob([jsonEditor.value]).size;
+  sizeBadge.style.display = '';
+  sizeBadge.textContent = size > 1024 ? (size/1024).toFixed(1)+' KB' : size+' B';
+}
+
+function importJSON(){
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    try{
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      STATE.backupJSON = parsed;
+      STATE.originalJSON = JSON.parse(JSON.stringify(parsed));
+      STATE.messages = [];
+      chatMessages.innerHTML = '<div class="msg system"><div class="msg-label">GEMINI Config Agent</div>Loaded <strong>'+file.name+'</strong> ('+(text.length/1024).toFixed(1)+' KB). Describe what you want to change.</div>';
+      renderJSON();
+      fileBadge.textContent = file.name;
+      showToast('Loaded '+file.name+' — ready to edit.','info');
+      updateConnectionStatus(!!STATE.apiKey);
+    }catch(e){
+      showToast('Invalid JSON: '+e.message,'error');
+    }
+  };
+  input.click();
+}
+
+function exportJSON(){
+  if(!STATE.backupJSON){ showToast('Nothing to export.','error'); return; }
+  const blob = new Blob([JSON.stringify(STATE.backupJSON, null, 2)], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'gemini-backup.json'; a.click();
+  URL.revokeObjectURL(url);
+  fileBadge.textContent = 'gemini-backup.json';
+  showToast('Exported successfully.','success');
+}
+
+function formatJSON(){
+  if(!STATE.backupJSON) return;
+  try{ jsonEditor.value = JSON.stringify(STATE.backupJSON, null, 2); showToast('Formatted.','info'); }
+  catch(e){ showToast('Format error: '+e.message,'error'); }
+}
+
+function validateJSON(){
+  if(!STATE.backupJSON){ showToast('Nothing to validate.','error'); return; }
+  const j = STATE.backupJSON;
+  const issues = [];
+  if(!j.version) issues.push('Missing version field.');
+  if(!j.exportedAt) issues.push('Missing exportedAt field.');
+  if(!j.settings) issues.push('Missing settings object.');
+  if(!j.personalIntelligence) issues.push('Missing personalIntelligence object.');
+  if(j.settings?.mcpServers){
+    const ids = j.settings.mcpServers.map(s=>s.id);
+    const dupes = ids.filter((id,i)=>ids.indexOf(id)!==i);
+    if(dupes.length) issues.push('Duplicate MCP server ids: '+[...new Set(dupes)].join(', '));
+  }
+  if(j.personalIntelligence && j.localStorage){
+    try{
+      const ls = JSON.parse(j.localStorage['gemini-for-macos:personalIntelligence'] || '{}');
+      if(ls.instructions !== j.personalIntelligence.instructions){
+        issues.push('personalIntelligence.instructions mismatch with localStorage copy.');
+      }
+    }catch(e){ issues.push('localStorage personalIntelligence is not valid JSON.'); }
+  }
+  if(issues.length===0) showToast('All validations passed.','success');
+  else showToast('Issues found:\n\u2022 '+issues.join('\n\u2022 '),'error');
+}
+
+function showSettings(){
+  $('apiProvider').value = STATE.apiProvider;
+  $('apiEndpoint').value = STATE.apiEndpoint || '';
+  $('apiModel').value = STATE.apiModel;
+  $('apiKey').value = STATE.apiKey;
+  $('maxTokens').value = STATE.maxTokens;
+  $('systemPromptFile').value = STATE.systemPrompt;
+  document.getElementById('densityPicker').value = themeEngine.getDensity();
+  toggleEndpoint();
+  $('settingsOverlay').style.display = 'flex';
+}
+
+function closeSettings(){ $('settingsOverlay').style.display = 'none'; }
+
+function toggleEndpoint(){
+  const p = $('apiProvider').value;
+  $('endpointGroup').style.display = p === 'openai-compatible' ? '' : 'none';
+  if(p==='openai' && !$('apiModel').value) $('apiModel').value = 'gpt-4o';
+  if(p==='anthropic' && !$('apiModel').value) $('apiModel').value = 'claude-3-5-sonnet-20241022';
+}
+
+function saveSettings(){
+  STATE.apiProvider = $('apiProvider').value;
+  STATE.apiEndpoint = $('apiEndpoint').value;
+  STATE.apiModel = $('apiModel').value || 'gpt-4o';
+  STATE.apiKey = $('apiKey').value;
+  STATE.maxTokens = parseInt($('maxTokens').value) || 8192;
+  STATE.systemPrompt = $('systemPromptFile').value || DEFAULT_SYSTEM_PROMPT;
+  saveState();
+  closeSettings();
+  updateConnectionStatus(!!STATE.apiKey);
+  showToast('Settings saved.','success');
+}
+
+function resetSettings(){
+  if(!confirm('Reset all settings to defaults? This will clear your API key.')) return;
+  localStorage.removeItem('gemini-config-mgr:state');
+  STATE.apiKey = '';
+  STATE.apiProvider = 'openai';
+  STATE.apiEndpoint = '';
+  STATE.apiModel = 'gpt-4o';
+  STATE.maxTokens = 8192;
+  STATE.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+  $('apiProvider').value = 'openai';
+  $('apiEndpoint').value = '';
+  $('apiModel').value = 'gpt-4o';
+  $('apiKey').value = '';
+  $('maxTokens').value = '8192';
+  $('systemPromptFile').value = DEFAULT_SYSTEM_PROMPT;
+  toggleEndpoint();
+  themeEngine.reset();
+  document.getElementById('densityPicker').value = 'comfortable';
+  bindThemePicker(headerPicker, themeEngine);
+  bindThemePicker(modalPicker, themeEngine);
+  updateConnectionStatus(false);
+  showToast('Settings reset.','info');
+}
+
+function showToast(msg, type='info'){
+  const el = document.createElement('div');
+  el.className = 'toast '+type;
+  el.textContent = msg;
+  el.style.whiteSpace = 'pre-line';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+// ── Init ─────────────────────────────────────────────────────
+loadState();
+renderJSON();
+
+// Expose to inline onclick handlers
+window.sendMessage = sendMessage;
+window.importJSON = importJSON;
+window.exportJSON = exportJSON;
+window.formatJSON = formatJSON;
+window.validateJSON = validateJSON;
+window.showSettings = showSettings;
+window.closeSettings = closeSettings;
+window.toggleEndpoint = toggleEndpoint;
+window.saveSettings = saveSettings;
+window.resetSettings = resetSettings;
+window.onThemePickerChange = () => {};
+window.onDensityPickerChange = () => {};
+</script>
+</body>
+</html>

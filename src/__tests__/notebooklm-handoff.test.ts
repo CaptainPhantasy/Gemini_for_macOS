@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Artifact, Thread } from '../types';
-import { integrations } from '../lib/integrations';
+import { integrations } from '../lib/integration/integrations';
 import { buildNotebookLmSourcePack, uploadNotebookLmSourcePack } from '../lib/notebooklm-handoff';
 
 const artifact: Artifact = {

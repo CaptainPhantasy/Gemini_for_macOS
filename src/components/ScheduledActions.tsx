@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ScheduledAction } from '../types';
-import { storage } from '../lib/storage';
+import { storage } from '../lib/storage/storage';
 import { scheduler, type InstallPlan, type UninstallPlan } from '../lib/scheduler-installer';
 import { cronToLaunchd } from '../lib/cron-to-launchd';
 import { v4 as uuidv4 } from 'uuid';

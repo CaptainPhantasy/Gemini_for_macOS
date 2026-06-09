@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Gem } from '../types';
-import { storage } from '../lib/storage';
+import { storage } from '../lib/storage/storage';
 import { v4 as uuidv4 } from 'uuid';
 import { X, Save } from 'lucide-react';
 

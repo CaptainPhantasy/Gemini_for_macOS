@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { getAI } from '../lib/api-config';
-import { storage } from '../lib/storage';
+import { storage } from '../lib/storage/storage';
 
 // Gemini 3.1 Pro context window is ~2M tokens input, but practical limits
 // are lower due to system instruction + tool definitions + function response

@@ -24,9 +24,9 @@ import {
   Image as ImageIcon,
   HardDrive,
 } from 'lucide-react';
-import { uploadArtifactToDrive } from '../lib/drive-sync';
-import { storage } from '../lib/storage';
-import { multimodal } from '../lib/multimodal';
+import { uploadArtifactToDrive } from '../lib/storage/drive-sync';
+import { storage } from '../lib/storage/storage';
+import { multimodal } from '../lib/generation/multimodal';
 import { getAI } from '../lib/api-config';
 import { costLedger } from '../lib/cost-ledger';
 import { mediaStore, dataUriToBlob, blobToObjectUrl } from '../lib/media-store';

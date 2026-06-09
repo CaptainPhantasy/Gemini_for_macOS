@@ -1,5 +1,5 @@
 import type { Artifact, Thread } from '../types';
-import type { UploadResult } from './integrations';
+import type { UploadResult } from './integration/integrations';
 
 const NOTEBOOKLM_URL = 'https://notebooklm.google.com/';
 const NOTEBOOKLM_ROOT_FOLDER = 'GEMINI/NotebookLM';

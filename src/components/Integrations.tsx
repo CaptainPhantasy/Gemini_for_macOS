@@ -27,15 +27,15 @@ import {
   type SheetSummary,
   type SlideSummary,
   type FormSummary,
-} from '../lib/integrations';
-import { oauthHandler, GOOGLE_WORKSPACE_SCOPES, type OAuthConfig } from '../lib/oauth-handler';
-import { showGoogleDrivePicker, importPickedDriveFiles } from '../lib/google-picker';
+} from '../lib/integration/integrations';
+import { oauthHandler, GOOGLE_WORKSPACE_SCOPES, type OAuthConfig } from '../lib/integration/oauth-handler';
+import { showGoogleDrivePicker, importPickedDriveFiles } from '../lib/integration/google-picker';
 import {
   buildNotebookLmSourcePack,
   NOTEBOOKLM_HANDOFF_URL,
   uploadNotebookLmSourcePack,
 } from '../lib/notebooklm-handoff';
-import { storage } from '../lib/storage';
+import { storage } from '../lib/storage/storage';
 import type { Artifact, Thread } from '../types';
 
 interface IntegrationsProps {

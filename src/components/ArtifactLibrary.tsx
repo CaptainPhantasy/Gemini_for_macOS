@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Artifact } from '../types';
-import { storage } from '../lib/storage';
+import { storage } from '../lib/storage/storage';
 import { X, Code, FileText, Search, Trash2, Edit2, Check, Upload, HardDrive } from 'lucide-react';
-import { uploadArtifactToDrive } from '../lib/drive-sync';
+import { uploadArtifactToDrive } from '../lib/storage/drive-sync';
 
 interface ArtifactLibraryProps {
   onClose: () => void;

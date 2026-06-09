@@ -5,7 +5,7 @@ import {
   buildOAuthAuthorizeUrl,
   oauthStorageKeyForScopes,
   parseOAuthCallbackParams,
-} from '../lib/oauth-handler';
+} from '../lib/integration/oauth-handler';
 
 describe('oauth-handler scope partitioning', () => {
   test('scope storage key is canonical and independent of order', () => {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { PersonalIntelligence } from '../types';
-import { storage } from '../lib/storage';
+import { storage } from '../lib/storage/storage';
 import { X } from 'lucide-react';
 
 interface PIProps {

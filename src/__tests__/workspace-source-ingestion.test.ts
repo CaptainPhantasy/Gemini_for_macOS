@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { calendarEventsToMarkdown, extractGoogleDocText } from '../lib/integrations';
+import { calendarEventsToMarkdown, extractGoogleDocText } from '../lib/integration/integrations';
 
 describe('workspace source ingestion helpers', () => {
   test('extracts text from body and tabbed Google Docs responses', () => {

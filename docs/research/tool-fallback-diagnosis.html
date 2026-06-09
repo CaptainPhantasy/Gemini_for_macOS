@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en" class="dark theme-gemini">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tool-Call Fallback Diagnosis — GEMINI for MacOS</title>
+<style>
+/* ── Gemini Theme ── */
+:root {
+  --gemini-bg-base: #07031a;
+  --gemini-bg-surface: #120831;
+  --gemini-bg-elevated: #1d0d48;
+  --gemini-bg-hover: #2a1563;
+  --gemini-bg-input: #1a0a3c;
+  --gemini-border: #3d1a7a;
+  --gemini-border-strong: #5a24b0;
+  --gemini-text-primary: #f2eaff;
+  --gemini-text-secondary: #c0a8e8;
+  --gemini-text-muted: #8a76b8;
+  --gemini-cyan: #22d3ee;
+  --gemini-cyan-bright: #67e8f9;
+  --gemini-magenta: #ff1493;
+  --gemini-magenta-bright: #ff4d8d;
+  --gemini-violet: #9d4edd;
+  --gemini-violet-bright: #c77dff;
+  --gemini-gold: #ffd60a;
+  --gemini-gradient: linear-gradient(135deg, #22d3ee 0%, #c77dff 50%, #ff1493 100%);
+  color-scheme: dark;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: "GoogleSansText", "Inter", system-ui, -apple-system, sans-serif;
+  background: var(--gemini-bg-base);
+  color: var(--gemini-text-primary);
+  line-height: 1.6;
+  background-image:
+    radial-gradient(ellipse at 15% 20%, rgba(157,78,221,0.22) 0%, transparent 55%),
+    radial-gradient(ellipse at 85% 80%, rgba(255,20,147,0.18) 0%, transparent 55%),
+    radial-gradient(ellipse at 50% 50%, rgba(34,211,238,0.10) 0%, transparent 70%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* ── Layout ── */
+.container { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+/* ── Header ── */
+h1 {
+  background: var(--gemini-gradient);
+  background-size: 250% 250%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+  font-size: 2.2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  animation: shimmer 9s ease-in-out infinite;
+  margin-bottom: 0.5rem;
+}
+@keyframes shimmer {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.subtitle {
+  color: var(--gemini-text-secondary);
+  font-size: 1rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--gemini-border);
+  padding-bottom: 1rem;
+}
+.subtitle span {
+  color: var(--gemini-cyan);
+  font-family: monospace;
+}
+
+/* ── Sections ── */
+section {
+  background: rgba(18,8,49,0.75);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--gemini-border);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  transition: border-color 0.2s;
+}
+section:hover { border-color: var(--gemini-border-strong); }
+section h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+section h2 .icon { font-size: 1.3rem; }
+section h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gemini-cyan-bright);
+  margin: 1.2rem 0 0.5rem;
+}
+section p { color: var(--gemini-text-secondary); margin-bottom: 0.75rem; }
+section p strong { color: var(--gemini-text-primary); }
+
+/* ── Code blocks ── */
+pre {
+  background: var(--gemini-bg-input);
+  border: 1px solid var(--gemini-border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  overflow-x: auto;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 0.75rem 0;
+  tab-size: 2;
+}
+code {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.85em;
+  background: rgba(34,211,238,0.1);
+  padding: 0.1em 0.3em;
+  border-radius: 0.3em;
+  color: var(--gemini-cyan-bright);
+}
+pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  color: var(--gemini-text-primary);
+}
+
+/* ── Syntax highlights ── */
+.kw { color: var(--gemini-magenta); }
+.fn { color: var(--gemini-cyan-bright); }
+.str { color: var(--gemini-gold); }
+.cm { color: var(--gemini-text-muted); font-style: italic; }
+.num { color: var(--gemini-violet-bright); }
+.op { color: var(--gemini-text-secondary); }
+.line-num { color: rgba(138,118,184,0.4); user-select: none; margin-right: 1.2em; }
+
+/* ── Decision boxes ── */
+.decision {
+  border-left: 4px solid;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+}
+.decision.root-cause { border-color: var(--gemini-magenta); background: rgba(255,20,147,0.08); }
+.decision.evidence { border-color: var(--gemini-cyan); background: rgba(34,211,238,0.06); }
+.decision.fix { border-color: var(--gemini-gold); background: rgba(255,214,10,0.06); }
+.decision h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+.decision.root-cause h4 { color: var(--gemini-magenta-bright); }
+.decision.evidence h4 { color: var(--gemini-cyan-bright); }
+.decision.fix h4 { color: var(--gemini-gold); }
+
+/* ── Flow diagram ── */
+.flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 1.5rem 1rem;
+  font-size: 0.85rem;
+}
+.flow-step {
+  background: var(--gemini-bg-hover);
+  border: 1px solid var(--gemini-border);
+  border-radius: 0.75rem;
+  padding: 0.6rem 1.2rem;
+  text-align: center;
+  min-width: 240px;
+  font-weight: 500;
+}
+.flow-step.active { border-color: var(--gemini-cyan); box-shadow: 0 0 12px rgba(34,211,238,0.2); }
+.flow-step.fail  { border-color: var(--gemini-magenta); }
+.flow-step.pass  { border-color: var(--gemini-gold); }
+.flow-arrow { color: var(--gemini-text-muted); font-size: 1.2rem; line-height: 1; }
+.flow-label { font-size: 0.7rem; color: var(--gemini-text-muted); margin-top: -0.1rem; }
+
+/* ── Severity badges ── */
+.badge {
+  display: inline-block;
+  padding: 0.15em 0.5em;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.badge-severe { background: rgba(255,20,147,0.2); color: var(--gemini-magenta-bright); border: 1px solid rgba(255,20,147,0.3); }
+.badge-high   { background: rgba(255,214,10,0.15); color: var(--gemini-gold); border: 1px solid rgba(255,214,10,0.25); }
+.badge-med    { background: rgba(34,211,238,0.12); color: var(--gemini-cyan-bright); border: 1px solid rgba(34,211,238,0.2); }
+.badge-info   { background: rgba(157,78,221,0.15); color: var(--gemini-violet-bright); border: 1px solid rgba(157,78,221,0.25); }
+
+/* ── Tables ── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.85rem;
+}
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--gemini-border);
+}
+th { color: var(--gemini-text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+td { color: var(--gemini-text-secondary); }
+tr:hover td { background: rgba(42,21,99,0.3); }
+
+/* ── Metric cards ── */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; margin: 1rem 0; }
+.metric {
+  background: var(--gemini-bg-elevated);
+  border: 1px solid var(--gemini-border);
+  border-radius: 0.75rem;
+  padding: 0.8rem;
+  text-align: center;
+}
+.metric .value { font-size: 1.8rem; font-weight: 700; background: var(--gemini-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.metric .label { font-size: 0.7rem; color: var(--gemini-text-muted); margin-top: 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* ── Tabs ── */
+.tabs { display: flex; gap: 0.25rem; margin-bottom: 0.5rem; }
+.tab-btn {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--gemini-border);
+  border-radius: 0.5rem 0.5rem 0 0;
+  background: transparent;
+  color: var(--gemini-text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.tab-btn:hover { background: var(--gemini-bg-hover); color: var(--gemini-text-secondary); }
+.tab-btn.active { background: var(--gemini-bg-elevated); color: var(--gemini-cyan-bright); border-color: var(--gemini-border-strong); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* ── Toggle ── */
+.toggle-header {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  user-select: none;
+}
+.toggle-header:hover { color: var(--gemini-cyan-bright); }
+.toggle-header .arrow { transition: transform 0.2s; font-size: 0.8rem; }
+.toggle-header.open .arrow { transform: rotate(90deg); }
+.toggle-body { display: none; padding: 0.5rem 0; }
+.toggle-body.open { display: block; }
+
+/* ── Footer ── */
+.footer { text-align: center; margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--gemini-border); color: var(--gemini-text-muted); font-size: 0.75rem; }
+.footer a { color: var(--gemini-cyan); text-decoration: none; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--gemini-bg-base); }
+::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--gemini-violet), var(--gemini-magenta)); border-radius: 4px; border: 2px solid var(--gemini-bg-base); }
+
+::selection { background: rgba(255,20,147,0.45); color: var(--gemini-text-primary); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Tool-Call Fallback Diagnosis</h1>
+<p class="subtitle">Why the model returns <span>"Tool execution completed, but the model did not provide a final summary"</span> instead of a natural language response</p>
+
+<section>
+<h2><span class="icon">&#x1f50d;</span> Problem Statement</h2>
+<p>When the agent executes one or more tool calls (e.g. <code>google:search</code>, <code>google:ds_python_interpreter</code>), the model <strong>successfully runs all tools</strong> across multiple iterations but then falls through to the synthetic fallback message instead of producing a natural-language summary of what it found.</p>
+
+<div class="decision root-cause">
+<h4>Root Cause</h4>
+<p>The <code>responseText</code> variable only accumulates text via the <code>onChunk</code> streaming callback. When the model response contains <em>only</em> <code>functionCall</code> parts across all 10 iterations — no text parts — <code>responseText</code> remains empty, and the fallback at line 793 fires.</p>
+</div>
+</section>
+
+<section>
+<h2><span class="icon">&#x1f9e9;</span> Code Flow Diagram</h2>
+<div class="flow">
+<div class="flow-step pass">&#9312; Send message &#8594; model generates</div>
+<div class="flow-arrow">&#9660;</div>
+<div class="flow-step active">&#9313; Extract response parts (line 675)</div>
+<div class="flow-label"><code>extractResponseParts(response)</code></div>
+<div class="flow-arrow">&#9660;</div>
+<div class="flow-step" style="border-color:var(--gemini-cyan)">&#9314; Has <code>functionCalls</code>?</div>
+<div class="flow-arrow">&#9660; YES</div>
+<div class="flow-step">&#9315; Execute tools via MCP (line 743)</div>
+<div class="flow-label"><code>mcpClient.executeTool(fc.name, fc.args)</code></div>
+<div class="flow-arrow">&#9660;</div>
+<div class="flow-step">&#9316; Append to <code>workingContents</code> (lines 724-751)</div>
+<div class="flow-arrow">&#9660;</div>
+<div class="flow-step">&#9317; <code>continue</code> &#8594; next iteration (line 752)</div>
+<div class="flow-arrow">&#9660;</div>
+<div class="flow-step fail" style="border-color:var(--gemini-gold)">&#9318; Iteration 10 exhausted, no text produced</div>
+<div class="flow-arrow">&#9660;</div>
+<div class="flow-step fail">&#9319; <strong>FALLBACK</strong> fires (line 793)</div>
+<div class="flow-label">responseText is empty</div>
+</div>
+</section>
+
+<section>
+<h2><span class="icon">&#x1f4ca;</span> Key Metrics</h2>
+<div class="metrics">
+<div class="metric"><div class="value">10</div><div class="label">Max Iterations</div></div>
+<div class="metric"><div class="value">40</div><div class="label">Context Message Limit</div></div>
+<div class="metric"><div class="value">0</div><div class="label">Text Assert on Fallback</div></div>
+<div class="metric"><div class="value">$0</div><div class="label">Cost for 0-char Response</div></div>
+</div>
+</section>
+
+<section>
+<h2><span class="icon">&#x1f50c;</span> Root Cause Analysis</h2>
+
+<h3>1. <code>responseText</code> only accumulates text chunks</h3>
+<p>At <code>App.tsx:668-671</code>, the <code>onChunk</code> callback sets <code>responseText = chunk.aggregatedText</code>. When the streaming response delivers only <code>functionCall</code> parts — which is the normal pattern for tool-using models — <code>aggregatedText</code> stays <code>""</code>.</p>
+
+<pre><code><span class="cm">// App.tsx:668-671 — onChunk callback</span>
+onChunk: (chunk) => {
+  responseText = chunk.aggregatedText;  <span class="cm">// empty when only functionCall parts</span>
+  upsertStreamingModelMessage(chunk.aggregatedText); <span class="cm">// shows empty bubble</span>
+},</code></pre>
+
+<h3>2. No text parts in model response</h3>
+<p>At <code>App.tsx:675</code>, <code>extractResponseParts(response)</code> returns <code>{ functionCalls: [...], text: "" }</code> when the model emits only <code>functionCall</code> parts. Since <code>functionCalls.length &gt; 0</code>, the loop continues (line 719-752) — but <code>responseText</code> from line 674 is <code>""</code>.</p>
+
+<pre><code><span class="cm">// App.tsx:674-676</span>
+responseText = result.responseText || responseText;
+const { text, functionCalls } = extractResponseParts(response);
+<span class="cm">// text = "" when only functionCall parts exist</span></code></pre>
+
+<h3>3. No mechanism to force a summary generation</h3>
+<p>The loop (lines 651-787) has three exit paths:
+<br>&#8226; <strong>Line 704-715:</strong> Budget exceeded — breaks with cost/thinking message
+<br>&#8226; <strong>Line 719-752:</strong> <code>functionCalls.length &gt; 0</code> — execute tools, <code>continue</code> to next iteration
+<br>&#8226; <strong>Line 786:</strong> No function calls — <code>break</code> with whatever <code>responseText</code> contains</p>
+<p>When path 2 runs for all 10 iterations, path 3 never executes, and <code>responseText</code> is still <code>""</code>. The fallback then fires at line 793.</p>
+
+<h3>4. Context window truncation (40-message limit)</h3>
+<p>At <code>App.tsx:610-612</code>, the conversation window is trimmed to <code>MODEL_CONTEXT_MESSAGE_LIMIT = 40</code> messages. Each tool round adds 2+ messages (model + user/tool-response). After 10 iterations, the model may lose visibility into earlier instructions including the "respond in natural language" system prompt.</p>
+
+<pre><code><span class="cm">// App.tsx:610-612</span>
+const workingMessages = updatedMessages.length &lt;= MODEL_CONTEXT_MESSAGE_LIMIT
+  ? updatedMessages
+  : updatedMessages.slice(-MODEL_CONTEXT_MESSAGE_LIMIT); <span class="cm">// 40 messages max</span></code></pre>
+
+<h3>5. The fallback message is purely synthetic</h3>
+<p>At <code>App.tsx:793-817</code>, the code scans <code>workingContents</code> for <code>functionResponse</code> parts and builds a text-only fallback. The model never participates in this step — it's a mechanical enumeration of tool results with no semantic understanding.</p>
+</section>
+
+<section>
+<h2><span class="icon">&#x1f9f0;</span> Four Fix Strategies</h2>
+
+<div class="decision fix">
+<h4>Fix A: Post-loop summary generation (recommended)</h4>
+<p>After the 10-iteration loop, if <code>responseText</code> is empty and tools were called, inject a final generation call with system instruction: <em>"Summarize the tool results above in natural language."</em> This gives the model one more chance with the complete tool output as context.</p>
+<pre><code><span class="cm">// App.tsx:~793 — after loop</span>
+<span class="kw">if</span> (!responseText.trim() && observedToolCalls.length > 0) {
+  <span class="kw">const</span> summaryResponse = <span class="kw">await</span> ai.models.generateContent({
+    model: selectedModel,
+    contents: [
+      ...workingContents,
+      { role: <span class="str">"user"</span>, parts: [{ text: <span class="str">"Summarize what you found."</span> }] }
+    ],
+  });
+  responseText = summaryResponse.text;
+}</code></pre>
+</div>
+
+<div class="decision fix">
+<h4>Fix B: Real-time tool execution UX</h4>
+<p>Show users the tool execution progress during the loop so they don't see a blank bubble. The <code>onChunk</code> callback at line 668-671 could also stream tool-call status via <code>upsertStreamingModelMessage</code>.</p>
+<pre><code><span class="cm">// During loop iteration — at line 741-751</span>
+upsertStreamingModelMessage(<span class="str">`Running tool: ${fc.name}...`</span>);</code></pre>
+</div>
+
+<div class="decision fix">
+<h4>Fix C: Truncate large tool results</h4>
+<p>If a tool returns a very large result (e.g. 100KB+), it may push the conversation past the model's context window. Cap tool results at ~4KB before appending to <code>workingContents</code>.</p>
+<pre><code><span class="cm">// Before appending at line 744</span>
+<span class="kw">const</span> truncated = truncateToolResult(toolResult, 4_000);
+workingContents.push(buildFunctionResponse(fc.name, truncated, fc.id));</code></pre>
+</div>
+
+<div class="decision fix">
+<h4>Fix D: Human-readable fallback with tool output</h4>
+<p>Enhance the fallback at line 809 to include actual tool output summaries rather than the generic message. Include key findings from each tool execution.</p>
+<pre><code><span class="cm">// App.tsx:808-812 improved</span>
+responseText = <span class="str">`I ran \${observedToolCalls.length} tools and found:\n\n\${summarizeToolOutputs(workingContents)}`</span>;</code></pre>
+</div>
+</section>
+
+<section>
+<h2><span class="icon">&#x1f4d1;</span> Code Map</h2>
+<table>
+<tr><th>File</th><th>Lines</th><th>Role</th></tr>
+<tr><td><code>App.tsx</code></td><td>610-612</td><td>Context window trim to 40 messages</td></tr>
+<tr><td><code>App.tsx</code></td><td>651-787</td><td>Tool-call loop (up to 10 iterations)</td></tr>
+<tr><td><code>App.tsx</code></td><td>668-671</td><td><code>onChunk</code> — only streams text, not tool activity</td></tr>
+<tr><td><code>App.tsx</code></td><td>674-675</td><td><code>responseText</code> reset to empty on each iteration</td></tr>
+<tr><td><code>App.tsx</code></td><td>719-752</td><td>Function-call path — executes tools, continues</td></tr>
+<tr><td><code>App.tsx</code></td><td>786</td><td>Text path — break with <code>responseText</code></td></tr>
+<tr><td><code>App.tsx</code></td><td>793-817</td><td>Fallback — synthetic message generation</td></tr>
+<tr><td><code>generation-wrapper.ts</code></td><td>137-152</td><td><code>generateWithFailoverStream</code> stream handling</td></tr>
+<tr><td><code>generation-wrapper.ts</code></td><td>37-73</td><td><code>extractResponseFragments</code> part parsing</td></tr>
+<tr><td><code>agent-tools.ts</code></td><td>—</td><td><code>extractResponseParts</code> / <code>buildFunctionResponse</code></td></tr>
+</table>
+</section>
+
+<section>
+<h2><span class="icon">&#x1f4a1;</span> Diagnosis Summary</h2>
+
+<table>
+<tr><th>Factor</th><th>Severity</th><th>Impact</th></tr>
+<tr><td><code>responseText</code> only captures text parts, not tool results</td><td><span class="badge badge-severe">Severe</span></td><td>Primary root cause — empty text equals empty fallback</td></tr>
+<tr><td>No mandatory-summary generation pass</td><td><span class="badge badge-severe">Severe</span></td><td>Model never forced to produce text output</td></tr>
+<tr><td>Context window may be truncated at 40 messages</td><td><span class="badge badge-high">High</span></td><td>Exacerbates silence on late iterations</td></tr>
+<tr><td>Large tool results consume context budget</td><td><span class="badge badge-med">Medium</span></td><td>Can push model past effective context</td></tr>
+<tr><td>No visible tool-progress indicator</td><td><span class="badge badge-med">Medium</span></td><td>Blank bubble confuses user during execution</td></tr>
+</table>
+
+<div class="decision evidence">
+<h4>Most Likely Scenario</h4>
+<p>The model is executing 1-3 tool calls per iteration and stopping because it has completed its assigned task (e.g., "search for X"). Each iteration adds 2+ messages (model thought + tool result). After 4-5 iterations, the 40-message window may have trimmed earlier context. The model interprets the trimmed context as "task complete, respond" but emits only a function call — not realizing it already returned tools in prior iterations. By iteration 10, the context is dominated by tool results with no visible instruction to produce a final text answer.</p>
+</div>
+
+<p>Recommended fix: <strong>Fix A</strong> (post-loop summary generation pass) as primary, <strong>Fix B</strong> (real-time tool UX) as secondary for immediate user-facing improvement.</p>
+</section>
+
+<div class="footer">
+  <p>GEMINI for MacOS — Tool-Call Fallback Diagnosis &bull; 2026-06-07</p>
+  <p>Source: <code>src/App.tsx</code>, <code>src/lib/generation-wrapper.ts</code> &bull; Branch: <code>feature/google-ecosystem-integration</code></p>
+</div>
+
+</div>
+</body>
+</html>

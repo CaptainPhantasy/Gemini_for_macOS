@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { selectModel } from '../lib/model-orchestrator';
+import { selectModel } from '../lib/model/model-orchestrator';
 import type { ToolDefinition } from '../lib/mcp';
-import { DEFAULT_MODEL_IDS } from '../lib/model-catalog';
+import { DEFAULT_MODEL_IDS } from '../lib/model/model-catalog';
 
 const makeTool = (name: string, description: string = ''): ToolDefinition => ({
   name,

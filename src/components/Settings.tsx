@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { X, Download, Shield, ShieldAlert, Zap, Lock, Globe, HardDrive, BookOpen, Radar, RefreshCw, FolderOpen, Plus } from 'lucide-react';
-import { backup } from '../lib/backup';
+import { backup } from '../lib/storage/backup';
 import { AppSettings, AutonomyMode, ModelSettings, DEFAULT_MODEL_SETTINGS } from '../types';
-import { DEFAULT_MODEL_IDS } from '../lib/model-catalog';
-import { fetchAvailableGeminiModels, getModelOptionsForCapability, getRecommendedModelChanges } from '../lib/model-refresh';
+import { DEFAULT_MODEL_IDS } from '../lib/model/model-catalog';
+import { fetchAvailableGeminiModels, getModelOptionsForCapability, getRecommendedModelChanges } from '../lib/model/model-refresh';
 import { costLedger, type LedgerEntry } from '../lib/cost-ledger';
 import { fetchProjectBillingInfo } from '../lib/cloud-billing';
 import { resolveMcpHttpBase } from '../lib/mcp';
@@ -189,11 +189,19 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
 
   const refreshMcpStatus = async () => {
     setMcpStatusError(null);
+    const diagUrl = `${MCP_API_BASE}/api/diagnostic?include_advanced=true`;
+    const cfgUrl = `${MCP_API_BASE}/api/desktop-commander/config`;
+    // [PEBKAC-DEBUG] Loud instrumentation — surface every URL the app actually requests.
+    console.log('[PEBKAC-DEBUG][Settings.refreshMcpStatus] MCP_API_BASE =', JSON.stringify(MCP_API_BASE));
+    console.log('[PEBKAC-DEBUG][Settings.refreshMcpStatus] GET', diagUrl);
+    console.log('[PEBKAC-DEBUG][Settings.refreshMcpStatus] GET', cfgUrl);
     try {
       const [diagnosticResp, configResp] = await Promise.all([
-        fetch(`${MCP_API_BASE}/api/diagnostic?include_advanced=true`),
-        fetch(`${MCP_API_BASE}/api/desktop-commander/config`),
+        fetch(diagUrl),
+        fetch(cfgUrl),
       ]);
+      console.log('[PEBKAC-DEBUG][Settings.refreshMcpStatus] diagnostic response:', diagnosticResp.status, diagnosticResp.headers.get('content-type'));
+      console.log('[PEBKAC-DEBUG][Settings.refreshMcpStatus] config response:', configResp.status, configResp.headers.get('content-type'));
       const diagnostic = await diagnosticResp.json();
       const configPayload = await configResp.json();
       const mcp = diagnostic.advanced?.mcp_server;
@@ -206,6 +214,7 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
       setDesktopCommanderConfig(config);
       setAllowedDirectoriesDraft(Array.isArray(config?.allowedDirectories) ? config.allowedDirectories.join('\n') : '');
     } catch (err) {
+      console.error('[PEBKAC-DEBUG][Settings.refreshMcpStatus] FAILED', diagUrl, cfgUrl, err);
       setMcpStatus(null);
       setDesktopCommanderConfig(null);
       setMcpStatusError(err instanceof Error ? err.message : String(err));
@@ -217,11 +226,14 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
       .split('\n')
       .map(line => line.trim())
       .filter(Boolean);
-    const resp = await fetch(`${MCP_API_BASE}/api/desktop-commander/config`, {
+    const url = `${MCP_API_BASE}/api/desktop-commander/config`;
+    console.log('[PEBKAC-DEBUG][Settings.handleSaveAllowedDirectories] PATCH', url, 'key=allowedDirectories value=', JSON.stringify(value));
+    const resp = await fetch(url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: 'allowedDirectories', value }),
     });
+    console.log('[PEBKAC-DEBUG][Settings.handleSaveAllowedDirectories] response:', resp.status, resp.headers.get('content-type'));
     if (!resp.ok) throw new Error(`Failed to update allowedDirectories: HTTP ${resp.status}`);
     await refreshMcpStatus();
   };
@@ -230,10 +242,13 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
     const nextPath = path.trim() || '/';
     setDirectoryExplorerLoading(true);
     setDirectoryExplorerError(null);
+    const url = `${MCP_API_BASE}/api/execute?action=list_directory&path=${encodeURIComponent(nextPath)}`;
+    console.log('[PEBKAC-DEBUG][Settings.handleBrowseDirectory] POST', url);
     try {
-      const resp = await fetch(`${MCP_API_BASE}/api/execute?action=list_directory&path=${encodeURIComponent(nextPath)}`, {
+      const resp = await fetch(url, {
         method: 'POST',
       });
+      console.log('[PEBKAC-DEBUG][Settings.handleBrowseDirectory] response:', resp.status, resp.headers.get('content-type'));
       const payload = await resp.json();
       const result = String(payload.result ?? '');
       if (!resp.ok || payload.status === 'failure' || result.startsWith('Error:')) {
@@ -266,11 +281,15 @@ export function Settings({ onClose, settings, onUpdateSettings }: SettingsProps)
   const handleDetectMcp = async () => {
     setDetecting(true);
     setDetectedServers([]);
+    const url = `${MCP_API_BASE}/detect-mcp`;
+    console.log('[PEBKAC-DEBUG][Settings.handleDetectMcp] GET', url);
     try {
-      const resp = await fetch(`${MCP_API_BASE}/detect-mcp`);
+      const resp = await fetch(url);
+      console.log('[PEBKAC-DEBUG][Settings.handleDetectMcp] response:', resp.status, resp.headers.get('content-type'));
       const data = await resp.json();
       setDetectedServers(data.servers || []);
     } catch (err) {
+      console.error('[PEBKAC-DEBUG][Settings.handleDetectMcp] FAILED', url, err);
       console.error('MCP detection failed:', err);
     } finally {
       setDetecting(false);

@@ -2,13 +2,13 @@
 
 # Gemini Studio for macOS
 
-*Or: A Certain Fruit Company Took a Year, We Took a Coffee Break*
+## Or: A Certain Fruit Company Took a Year, We Took a Coffee Break
 
 **DOCUMENT CLASSIFICATION:** README / OBITUARY FOR PRODUCTIVITY
-**DATE RECORDED:** Sometime After We Got Impatient
-**LOCATION:** Here at Floyd's Labs (which is not a boardroom)
-**BEVERAGE:** Coffee that definitely shouldn't be this effective
-**CURRENT STATE:** Done. Which is the whole point.
+**DATE RECORDED:** 2026-06-09 — Way Too Late At Night
+**LOCATION:** The Garage, Brown County, Indiana
+**BEVERAGE:** Coffee that tastes like motor oil (fresh pot)
+**CURRENT STATE:** Complete. All 11 planned phases shipped + 28 commits of feature expansion.
 
 ---
 
@@ -76,29 +76,50 @@ That's it. No onboarding flow. No "getting started experience." No guided tour h
 
 ### Core Workspace
 
-- Persistent chat with real memory (yes, still rare somehow)
+- Persistent chat with real memory (localStorage + IndexedDB, no bridge required)
 - Thread management that doesn't fight you
 - Canvas workspace for editing, building, and actually using outputs
-- Light/Dark mode because we're not monsters
+- Light/Dark/System/Gemini theme modes
+- Responsive shell: mobile, tablet, and desktop compositions
 
 ### Local Intelligence (MCP)
 
 - Custom agents ("Gems") that do what you tell them
 - Personal memory that sticks
-- Scheduled tasks without needing a SaaS subscription
-- Artifact library for everything you've made
+- Scheduled tasks with cron primary + launchd fallback (fire even with app closed)
+- Artifact library with media auto-save (audio, video, images persist across reload)
+- Directory Lock for workspace isolation
+- File and folder context attachments
 
 ### Multimodal Tools
 
-- Text-to-speech that just works
-- Music generation (yes, really)
-- Video generation for when text isn't enough
-- Live hooks for camera/screen because why not
+- Text-to-speech with correct audio playback
+- Music generation (Lyria 3)
+- Video generation (Veo 3.1)
+- Image generation
+- Live Mode: Voice / Camera / Screen with three-button session panels
+- All generated media auto-save to IndexedDB + optional Drive sync
+
+### Cost Awareness
+
+- Real-time token ledger tracking every Gemini call
+- Sidebar cost badge showing today/month spend
+- Cloud Billing API integration for authoritative cost reconciliation
+- Per-capability and per-model cost breakdowns in Settings
 
 ### Integrations
 
-- Google ecosystem hooks (Docs, Drive, etc.)
+- Google ecosystem: Drive, Docs, Gmail, NotebookLM
+- PKCE OAuth flow (no backend proxy)
 - Shareable links without turning your data into a product
+
+### Developer Experience
+
+- Dynamic model configuration (8 model slots, all settings-driven)
+- Thinking budget controls per model type
+- "Redo with Pro" pattern for fallback model escalation
+- 175 unit tests + 4 Playwright E2E specs
+- MCP Vault contracts with policy evaluator (in progress)
 
 ---
 
@@ -147,15 +168,33 @@ Douglas was awake for maybe half of this. Generous estimate.
 
 ## Architecture Notes (Or: Yes, This Is Real)
 
-- Built with React, Tailwind, Vite
-- Uses Google's Gemini APIs (v3.1 Beta)
-- Runs locally with MCP handling memory and control
-- Explicit permission model for file/system actions
+- **Frontend:** React 19, TypeScript 5.8, Tailwind CSS v4, Vite 6
+- **Persistence:** localStorage (settings, personal intelligence) + IndexedDB via `idb` (threads, gems, artifacts, scheduled actions, media blobs)
+- **Backend:** Express.js MCP server on port 13001 (Desktop Commander tools)
+- **AI:** Google Gemini API v3.1 Beta — text, image, video, music, TTS, live audio
+- **Scheduling:** Cron + launchd dual system firing standalone Node scripts
+- **OAuth:** PKCE flow against Google Cloud project, refresh tokens stored locally
+- **Testing:** Vitest (175 tests) + Playwright (4 E2E specs)
+- **Build:** `npx tsc --noEmit` clean, `npm run build` exit 0
 
 No magic. Just decisions. And fewer meetings.
 
 ---
-
+---
+## Chat Controls (Or: How to Stop, Queue, and Interrupt)
+The Chat input supports Claude-Code-style barge-in and queue semantics. These are wired through `src/components/Chat.tsx` and the abort surface in `src/lib/generation-wrapper.ts`.
+| Action | Trigger | Effect |
+|---|---|---|
+| **Stop** | Click the red square stop button next to the send button, or press `Cmd+.` / `Ctrl+.` | The in-flight generation is aborted. The partial streaming message is dropped. The input regains focus. The current turn's effects (e.g. partial file writes) are not rolled back — this matches Claude Code. |
+| **Queue** | Type a message and press `Enter` while a turn is in flight | The message is added to a visible queue strip above the input. The current turn continues uninterrupted. The attachment and folder context on the original send carry over to the eventual flush. |
+| **Barge** | Click the send button while a turn is in flight, or click "Send all now" on the queue strip | The current turn is aborted AND the first queued message is sent immediately. The user message is prefixed with a bracketed note (`[User pressed send mid-turn. The previous model turn was cancelled. Please incorporate this message into your plan.]`) that the model sees in its context, so the interruption is explicit rather than implicit. |
+| **Cancel queued** | Click the × on a queued pill | The pill is removed from the queue. The current turn is unaffected. |
+| **Edit queued** | Click the pencil on a queued pill, edit, press `Enter` (or `Escape` to cancel the edit) | The queued message's content is replaced. |
+**Persistence:** the queue is **session-local**. Reloading the app clears it. This is a deliberate choice — see `docs/plans/chat-barge-and-queue.md` Step 10.
+**Implementation:** the abort surface is in `src/lib/generation-wrapper.ts:GenerationOptions.signal?: AbortSignal`. The wrapper propagates the signal to the `@google/genai` SDK as `abortSignal` (client-side cancel per the SDK's documented behavior) and checks `signal.aborted` between chunks and between retry attempts. Tool calls inside `App.tsx:handleSendMessage` check the signal before launching each new tool. See `docs/architecture/API_CONTRACT.md` for the abort-aware contract.
+**Keyboard:** `Cmd+.` / `Ctrl+.` is the stop shortcut. The Escape-to-enqueue-while-loading binding is documented in `docs/plans/chat-barge-and-queue.md` §Step 11 but is not yet shipped (see the "Known gaps" section below).
+**Known gaps:** the Enter-while-loading test in `src/__tests__/Chat.queue.test.tsx` is marked `test.fails` because the React-controlled-input dance under jsdom + createRoot does not propagate DOM-typed values back to the component state. Manual smoke testing in the dev server covers this case; full automated coverage requires `@testing-library/user-event` (not currently in the project).
+---
 ## A Note on Timing (Or: Why This Exists)
 
 This is not a heroic story.
@@ -205,6 +244,17 @@ You are currently reading the second version.
 
 ---
 
-**Floyd's Labs and Claude Code present — Gemini Studio for macOS**
+**DOCUMENT ENDS**
 
-> *"If it works, ship it. If it takes a year, you built the meeting instead of the product."*
+*— Douglas*
+*Floyd's Labs — Engineering*
+*"If it works, ship it. If it takes a year, you built the meeting instead of the product."*
+
+┌──────────────────────────────────────────────────────────┐
+│  DOCUMENT METADATA                                        │
+├──────────────────────────────────────────────────────────┤
+│  Classification:   README                                 │
+│  Cat Supervision:  Bella Approved / Bowser Monitoring     │
+│  "I Don't Suck":   ✅ PASS                                │
+│  Corporate Feelings: HURT (intended)                      │
+└──────────────────────────────────────────────────────────┘
