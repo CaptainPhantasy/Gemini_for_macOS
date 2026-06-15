@@ -1,17 +1,16 @@
 /**
- * GEMINI for MacOS — Intent-Driven Multi-Model Orchestration Engine
+ * GEMINI for MacOS — Model Selection
  *
- * Evaluates the active message content and available tools before
- * dispatching API requests, routing high-impact actions (WRITE, EXECUTE)
- * to the pro model with thinking budgets, and read-only operations (READ)
- * to the faster flash model.
+ * The user's selected model (from Settings) is the sole determinant of which
+ * model handles a request. Thinking budgets are still applied to WRITE/EXECUTE
+ * intent for deeper reasoning. textFallback is reserved for the generation
+ * wrapper's failover path — it is never used for primary routing.
  *
  * Architecture Roadmap §3c: Intent-Driven Multi-Model Orchestration
  */
 
 import type { ToolDefinition } from '../mcp';
 import { DEFAULT_MODEL_IDS } from '../model/model-catalog';
-import { logger } from '../logger';
 
 export interface ModelSelection {
   /** The model ID to use for this request. */
@@ -25,23 +24,16 @@ export interface ModelSelection {
 /** Patterns that indicate a high-impact (WRITE/EXECUTE) intent in the message. */
 const HIGH_IMPACT_PATTERNS = /\b(write|create|delete|modify|execute|run|install|remove|edit|update|move|rename|chmod|chown)\b/i;
 
-/** Patterns that indicate a read-only intent in the message. */
-const READ_ONLY_PATTERNS = /^(list|read|show|get|check|what|who|where|how|when|is|are|can|does|do|tell|explain|describe|summarize|search|find|cat|head|ls|pwd|echo|which|type)\b/i;
-
 /** Tool name patterns that indicate WRITE/EXECUTE actions. */
 const WRITE_TOOL_PATTERNS = /write|delete|create|execute|command|move|rename|chmod|chown/i;
 
-/** Tool name patterns that indicate READ actions. */
-const READ_TOOL_PATTERNS = /read|list|get|search|info|head|cat|find/i;
-
 /**
- * Select the optimal model for a generation request based on
- * message intent and available tool capabilities.
+ * Select the model for a generation request.
  *
- * Routing logic:
- * - WRITE/EXECUTE intent or tools → pro model with thinking budget
- * - READ-only intent with no WRITE tools → flash model (fast, cheap)
- * - Ambiguous or no tool use → pro model (safe default)
+ * The user's configured `text` model is always used. High-impact actions
+ * (WRITE/EXECUTE) get the thinking budget applied for deeper reasoning.
+ * The model selector is the determining factor — no automatic routing
+ * to a different model.
  */
 export function selectModel(
   messageContent: string,
@@ -49,38 +41,22 @@ export function selectModel(
   settings: { models?: { text?: string; textFallback?: string }; thinkingBudgets?: { text?: number } }
 ): ModelSelection {
   const textModel = settings.models?.text ?? DEFAULT_MODEL_IDS.text;
-  const flashModel = settings.models?.textFallback ?? DEFAULT_MODEL_IDS.textFallback;
 
-  // Analyze message intent
+  // Check for high-impact intent to apply thinking budget
   const hasWriteIntent = HIGH_IMPACT_PATTERNS.test(messageContent);
-  const hasReadIntent = READ_ONLY_PATTERNS.test(messageContent.trim());
-
-  // Analyze tool capabilities
   const hasWriteTools = tools.some(t => WRITE_TOOL_PATTERNS.test(t.name));
-  const hasReadTools = tools.some(t => READ_TOOL_PATTERNS.test(t.name));
 
-  // Route high-impact actions to pro model with thinking budget
   if (hasWriteIntent || hasWriteTools) {
     return {
       model: textModel,
       thinkingBudget: settings.thinkingBudgets?.text,
-      reason: 'High-impact action detected — routing to pro model with thinking budget',
+      reason: 'High-impact action — using selected model with thinking budget',
     };
   }
 
-  // Route read-only queries to flash model for speed and cost efficiency
-  if (hasReadIntent && !hasWriteIntent && !hasWriteTools) {
-    logger.info('[orchestrator] Read-only query detected — routing to flash model');
-    return {
-      model: flashModel,
-      reason: 'Read-only query — routing to flash model for speed and cost efficiency',
-    };
-  }
-
-  // Default: pro model for complex or ambiguous queries
+  // All other queries — use the user's selected model directly
   return {
     model: textModel,
-    thinkingBudget: settings.thinkingBudgets?.text,
-    reason: 'Default — routing to pro model for complex or ambiguous queries',
+    reason: 'Using user-selected model',
   };
 }

@@ -1,7 +1,8 @@
 import { openDB, IDBPDatabase } from 'idb';
-import { Thread, Gem, ScheduledAction, Artifact, PersonalIntelligence, AppSettings } from '../../types';
+import { Thread, Gem, ScheduledAction, Artifact, PersonalIntelligence, AppSettings, ModelSettings } from '../../types';
 import { normalizeAutonomyMode } from '../autonomy';
 import { normalizeMcpServers } from '../mcp-server-config';
+import { DEFAULT_MODEL_IDS, MODEL_CATALOG } from '../model/model-catalog';
 
 // Browser-native persistence:
 //   - localStorage for small hot data (settings, personalIntelligence)
@@ -124,15 +125,41 @@ async function safeGetAll<T>(storeName: string): Promise<T[]> {
   }
 }
 
+/**
+ * Replace any persisted model ID that is no longer in the live catalog with
+ * the current default for that capability. Prevents 404s when Google
+ * deprecates a model (e.g. gemini-2.0-flash-lite-001).
+ */
+function sanitizeModelSettings(models: ModelSettings | undefined): ModelSettings | undefined {
+  if (!models) return undefined;
+  const sanitized = { ...models };
+  for (const capability of Object.keys(DEFAULT_MODEL_IDS) as (keyof typeof DEFAULT_MODEL_IDS)[]) {
+    const current = sanitized[capability];
+    if (!current) continue;
+    const catalogEntry = (MODEL_CATALOG as Record<string, readonly { id: string }[]>)[capability];
+    const isKnown = catalogEntry?.some(option => option.id === current)
+      || current === DEFAULT_MODEL_IDS[capability];
+    if (!isKnown) {
+      console.warn(`[storage] Replacing deprecated model "${current}" for ${capability} with default "${DEFAULT_MODEL_IDS[capability]}"`);
+      sanitized[capability] = DEFAULT_MODEL_IDS[capability];
+    }
+  }
+  return sanitized;
+}
+
 function mergeSettings(partial: Partial<AppSettings> | null | undefined): AppSettings {
   if (!partial || typeof partial !== 'object') return defaultSettings;
   const { scopedPaths: _discardLegacyScopedPaths, ...settings } = partial as Partial<AppSettings> & { scopedPaths?: unknown };
-  return {
+  const merged: AppSettings = {
     ...defaultSettings,
     ...settings,
     autonomyMode: normalizeAutonomyMode(settings.autonomyMode),
     mcpServers: normalizeMcpServers(settings.mcpServers),
   };
+  if (merged.models) {
+    merged.models = sanitizeModelSettings(merged.models);
+  }
+  return merged;
 }
 
 function resolveDefaultConfigEndpoint(): string | null {
